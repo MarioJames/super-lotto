@@ -210,7 +210,7 @@
 - [ ] 10. Checkpoint - 确保所有测试通过
   - Ensure all tests pass, ask the user if questions arise.
 
-- [-] 11. 集成和优化
+- [x] 11. 集成和优化
   - [x] 11.1 实现错误处理和用户反馈
     - 统一错误处理
     - Toast 通知
@@ -220,7 +220,7 @@
     - 前端表单验证
     - API 参数验证
     - _Requirements: 1.6, 4.5_
-  - [ ] 11.3 编写数据库事务属性测试
+  - [ ]* 11.3 编写数据库事务属性测试
     - **Property 15: 数据库事务一致性**
     - **Property 16: 数据持久化往返**
     - **Validates: Requirements 8.2, 8.3, 8.4**

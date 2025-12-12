@@ -75,7 +75,7 @@ export class ParticipantService {
     }
 
     // 映射列名（支持中英文）
-    const mappedRecords: ParticipantCSVRow[] = records.map((record: Record<string, string>) => ({
+    const mappedRecords: ParticipantCSVRow[] = (records as unknown as Record<string, string>[]).map((record) => ({
       name: record.name || record['姓名'] || '',
       employeeId: record.employeeId || record.employee_id || record['工号'] || '',
       department: record.department || record['部门'] || '',
