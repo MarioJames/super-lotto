@@ -4,7 +4,7 @@ import { LotteryError } from '@/lib/types/errors';
 
 export async function GET() {
   try {
-    const participants = participantService.listParticipants();
+    const participants = await participantService.listParticipants();
     return NextResponse.json({ success: true, data: participants });
   } catch (error) {
     if (error instanceof LotteryError) {
@@ -17,7 +17,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const participant = participantService.addParticipant(body);
+    const participant = await participantService.addParticipant(body);
     return NextResponse.json({ success: true, data: participant }, { status: 201 });
   } catch (error) {
     if (error instanceof LotteryError) {

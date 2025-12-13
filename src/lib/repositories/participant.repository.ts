@@ -1,14 +1,7 @@
-import { getDatabase } from '../db';
+import { getSupabaseClient } from '../db/supabase';
+import type { ParticipantRow, ParticipantInsert, ParticipantUpdate, ActivityParticipantRow, RoundRow, WinnerRow } from '../db/types';
 import type { Participant, CreateParticipantDTO, UpdateParticipantDTO, ParticipantCSVRow, ImportResult } from '../types';
-
-interface ParticipantRow {
-  id: number;
-  name: string;
-  employee_id: string;
-  department: string;
-  email: string;
-  created_at: string;
-}
+import { parseSupabaseError, DatabaseError } from '../types/errors';
 
 function rowToParticipant(row: ParticipantRow): Participant {
   return {
@@ -22,92 +15,164 @@ function rowToParticipant(row: ParticipantRow): Participant {
 }
 
 export class ParticipantRepository {
-  findById(id: number): Participant | null {
-    const db = getDatabase();
-    const row = db.prepare('SELECT * FROM participants WHERE id = ?').get(id) as ParticipantRow | undefined;
-    return row ? rowToParticipant(row) : null;
+  async findById(id: number): Promise<Participant | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw parseSupabaseError(error, 'findById');
+    }
+
+    return data ? rowToParticipant(data as ParticipantRow) : null;
   }
 
-  findAll(): Participant[] {
-    const db = getDatabase();
-    const rows = db.prepare('SELECT * FROM participants ORDER BY id').all() as ParticipantRow[];
-    return rows.map(rowToParticipant);
+  async findAll(): Promise<Participant[]> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('participants')
+      .select('*')
+      .order('id');
+
+    if (error) {
+      throw parseSupabaseError(error, 'findAll');
+    }
+
+    return ((data || []) as ParticipantRow[]).map(rowToParticipant);
   }
 
-  findByEmployeeId(employeeId: string): Participant | null {
-    const db = getDatabase();
-    const row = db.prepare('SELECT * FROM participants WHERE employee_id = ?').get(employeeId) as ParticipantRow | undefined;
-    return row ? rowToParticipant(row) : null;
+  async findByEmployeeId(employeeId: string): Promise<Participant | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('employee_id', employeeId)
+      .single();
+
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw parseSupabaseError(error, 'findByEmployeeId');
+    }
+
+    return data ? rowToParticipant(data as ParticipantRow) : null;
   }
 
-  create(data: CreateParticipantDTO): Participant {
-    const db = getDatabase();
-    const result = db.prepare(`
-      INSERT INTO participants (name, employee_id, department, email)
-      VALUES (?, ?, ?, ?)
-    `).run(data.name, data.employeeId, data.department, data.email);
+  async create(data: CreateParticipantDTO): Promise<Participant> {
+    const supabase = getSupabaseClient();
+    const insertData: ParticipantInsert = {
+      name: data.name,
+      employee_id: data.employeeId,
+      department: data.department,
+      email: data.email,
+    };
 
-    return this.findById(result.lastInsertRowid as number)!;
+    const { data: created, error } = await supabase
+      .from('participants')
+      .insert(insertData as never)
+      .select()
+      .single();
+
+    if (error) {
+      throw parseSupabaseError(error, 'create');
+    }
+
+    if (!created) {
+      throw new DatabaseError('创建参与人员失败：未返回数据', 'create');
+    }
+
+    return rowToParticipant(created as ParticipantRow);
   }
 
-  update(id: number, data: UpdateParticipantDTO): Participant | null {
-    const db = getDatabase();
-    const existing = this.findById(id);
+  async update(id: number, data: UpdateParticipantDTO): Promise<Participant | null> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
     if (!existing) return null;
 
-    const updates: string[] = [];
-    const values: (string | number)[] = [];
+    const updateData: ParticipantUpdate = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.employeeId !== undefined) updateData.employee_id = data.employeeId;
+    if (data.department !== undefined) updateData.department = data.department;
+    if (data.email !== undefined) updateData.email = data.email;
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
-    }
-    if (data.employeeId !== undefined) {
-      updates.push('employee_id = ?');
-      values.push(data.employeeId);
-    }
-    if (data.department !== undefined) {
-      updates.push('department = ?');
-      values.push(data.department);
-    }
-    if (data.email !== undefined) {
-      updates.push('email = ?');
-      values.push(data.email);
+    if (Object.keys(updateData).length === 0) {
+      return existing;
     }
 
-    if (updates.length === 0) return existing;
+    const { data: updated, error } = await supabase
+      .from('participants')
+      .update(updateData as never)
+      .eq('id', id)
+      .select()
+      .single();
 
-    values.push(id);
-    db.prepare(`UPDATE participants SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    if (error) {
+      throw parseSupabaseError(error, 'update');
+    }
 
-    return this.findById(id);
+    return updated ? rowToParticipant(updated as ParticipantRow) : null;
   }
 
-  delete(id: number): boolean {
-    const db = getDatabase();
-    const result = db.prepare('DELETE FROM participants WHERE id = ?').run(id);
-    return result.changes > 0;
+  async delete(id: number): Promise<boolean> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
+    if (!existing) return false;
+
+    const { error } = await supabase
+      .from('participants')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw parseSupabaseError(error, 'delete');
+    }
+
+    return true;
   }
 
-  findByActivityId(activityId: number): Participant[] {
-    const db = getDatabase();
-    const rows = db.prepare(`
-      SELECT p.* FROM participants p
-      INNER JOIN activity_participants ap ON p.id = ap.participant_id
-      WHERE ap.activity_id = ?
-      ORDER BY p.id
-    `).all(activityId) as ParticipantRow[];
-    return rows.map(rowToParticipant);
+  async findByActivityId(activityId: number): Promise<Participant[]> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('activity_participants')
+      .select('participant_id')
+      .eq('activity_id', activityId);
+
+    if (error) {
+      throw parseSupabaseError(error, 'findByActivityId');
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    const participantIds = (data as Pick<ActivityParticipantRow, 'participant_id'>[]).map(row => row.participant_id);
+    const { data: participants, error: participantsError } = await supabase
+      .from('participants')
+      .select('*')
+      .in('id', participantIds)
+      .order('id');
+
+    if (participantsError) {
+      throw parseSupabaseError(participantsError, 'findByActivityId');
+    }
+
+    return ((participants || []) as ParticipantRow[]).map(rowToParticipant);
   }
 
-  importFromCSV(data: ParticipantCSVRow[]): ImportResult {
-    const db = getDatabase();
+
+  async importFromCSV(data: ParticipantCSVRow[]): Promise<ImportResult> {
+    const supabase = getSupabaseClient();
     const result: ImportResult = { success: 0, failed: 0, errors: [] };
-
-    const insertStmt = db.prepare(`
-      INSERT INTO participants (name, employee_id, department, email)
-      VALUES (?, ?, ?, ?)
-    `);
 
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -118,8 +183,26 @@ export class ParticipantRepository {
           continue;
         }
 
-        insertStmt.run(row.name, row.employeeId, row.department, row.email);
-        result.success++;
+        const insertData: ParticipantInsert = {
+          name: row.name,
+          employee_id: row.employeeId,
+          department: row.department,
+          email: row.email,
+        };
+
+        const { error } = await supabase
+          .from('participants')
+          .insert(insertData as never);
+
+        if (error) {
+          result.failed++;
+          result.errors.push({
+            row: i + 1,
+            message: error.message || 'Unknown error'
+          });
+        } else {
+          result.success++;
+        }
       } catch (error) {
         result.failed++;
         result.errors.push({
@@ -132,27 +215,73 @@ export class ParticipantRepository {
     return result;
   }
 
-  findAvailableForRound(activityId: number, allowMultiWin: boolean): Participant[] {
-    const db = getDatabase();
+  async findAvailableForRound(activityId: number, allowMultiWin: boolean): Promise<Participant[]> {
+    const supabase = getSupabaseClient();
 
     if (allowMultiWin) {
       return this.findByActivityId(activityId);
     }
 
-    // 排除已中奖的参与人员
-    const rows = db.prepare(`
-      SELECT p.* FROM participants p
-      INNER JOIN activity_participants ap ON p.id = ap.participant_id
-      WHERE ap.activity_id = ?
-      AND p.id NOT IN (
-        SELECT w.participant_id FROM winners w
-        INNER JOIN rounds r ON w.round_id = r.id
-        WHERE r.activity_id = ?
-      )
-      ORDER BY p.id
-    `).all(activityId, activityId) as ParticipantRow[];
+    // Get participants in the activity
+    const { data: activityParticipants, error: apError } = await supabase
+      .from('activity_participants')
+      .select('participant_id')
+      .eq('activity_id', activityId);
 
-    return rows.map(rowToParticipant);
+    if (apError) {
+      throw parseSupabaseError(apError, 'findAvailableForRound');
+    }
+
+    if (!activityParticipants || activityParticipants.length === 0) {
+      return [];
+    }
+
+    const participantIds = (activityParticipants as Pick<ActivityParticipantRow, 'participant_id'>[]).map(row => row.participant_id);
+
+    // Get winners in this activity (through rounds)
+    const { data: rounds, error: roundsError } = await supabase
+      .from('rounds')
+      .select('id')
+      .eq('activity_id', activityId);
+
+    if (roundsError) {
+      throw parseSupabaseError(roundsError, 'findAvailableForRound');
+    }
+
+    let winnerParticipantIds: number[] = [];
+    if (rounds && rounds.length > 0) {
+      const roundIds = (rounds as Pick<RoundRow, 'id'>[]).map(r => r.id);
+      const { data: winners, error: winnersError } = await supabase
+        .from('winners')
+        .select('participant_id')
+        .in('round_id', roundIds);
+
+      if (winnersError) {
+        throw parseSupabaseError(winnersError, 'findAvailableForRound');
+      }
+
+      winnerParticipantIds = ((winners || []) as Pick<WinnerRow, 'participant_id'>[]).map(w => w.participant_id);
+    }
+
+    // Filter out winners
+    const availableIds = participantIds.filter(id => !winnerParticipantIds.includes(id));
+
+    if (availableIds.length === 0) {
+      return [];
+    }
+
+    // Get participant details
+    const { data: participants, error: participantsError } = await supabase
+      .from('participants')
+      .select('*')
+      .in('id', availableIds)
+      .order('id');
+
+    if (participantsError) {
+      throw parseSupabaseError(participantsError, 'findAvailableForRound');
+    }
+
+    return ((participants || []) as ParticipantRow[]).map(rowToParticipant);
   }
 }
 

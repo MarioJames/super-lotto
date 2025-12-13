@@ -7,7 +7,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const participant = participantService.getParticipant(parseInt(id));
+    const participant = await participantService.getParticipant(parseInt(id));
     return NextResponse.json({ success: true, data: participant });
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -24,7 +24,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const participant = participantService.updateParticipant(parseInt(id), body);
+    const participant = await participantService.updateParticipant(parseInt(id), body);
     return NextResponse.json({ success: true, data: participant });
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    participantService.deleteParticipant(parseInt(id));
+    await participantService.deleteParticipant(parseInt(id));
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof NotFoundError) {

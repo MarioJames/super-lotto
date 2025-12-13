@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     const csvContent = await file.text();
-    const result = participantService.importParticipantsFromCSV(csvContent);
+    const result = await participantService.importParticipantsFromCSV(csvContent);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {

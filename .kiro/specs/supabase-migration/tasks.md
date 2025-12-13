@@ -1,0 +1,115 @@
+# 实现计划
+
+- [x] 1. 设置 Supabase 基础设施
+  - [x] 1.1 安装 Supabase 依赖
+    - 安装 `@supabase/supabase-js` 包
+    - _需求: 1.1_
+  - [x] 1.2 创建 Supabase 客户端模块
+    - 创建 `src/lib/db/supabase.ts` 文件
+    - 使用指定的 URL 和环境变量配置初始化客户端
+    - _需求: 1.1, 1.3_
+  - [x] 1.3 创建数据库类型定义
+    - 创建 `src/lib/db/types.ts` 文件
+    - 定义所有表的 Row、Insert、Update 类型
+    - _需求: 2.1, 2.2, 2.3, 2.4, 2.5_
+  - [x] 1.4 创建错误处理工具
+    - 在 `src/lib/types/errors.ts` 中添加 DatabaseError、UniqueConstraintError、ForeignKeyError 类
+    - _需求: 8.1, 8.2, 8.3_
+  - [ ]* 1.5 编写属性测试：Supabase 客户端单例
+    - **属性 1: Supabase 客户端单例**
+    - **验证: 需求 1.3**
+
+- [-] 2. 迁移 Participant Repository
+  - [x] 2.1 重写 ParticipantRepository 使用 Supabase
+    - 更新 `src/lib/repositories/participant.repository.ts`
+    - 实现 findById、findAll、findByEmployeeId、create、update、delete 方法
+    - 实现 findByActivityId、importFromCSV、findAvailableForRound 方法
+    - _需求: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
+  - [ ]* 2.2 编写属性测试：参与人员往返一致性
+    - **属性 2: 参与人员往返一致性**
+    - **验证: 需求 3.1, 3.2**
+  - [ ]* 2.3 编写属性测试：参与人员更新一致性
+    - **属性 3: 参与人员更新一致性**
+    - **验证: 需求 3.3**
+  - [ ]* 2.4 编写属性测试：参与人员删除完整性
+    - **属性 4: 参与人员删除完整性**
+    - **验证: 需求 3.4**
+  - [ ]* 2.5 编写属性测试：CSV 导入计数不变量
+    - **属性 5: CSV 导入计数不变量**
+    - **验证: 需求 3.5**
+  - [ ]* 2.6 编写属性测试：可用参与人员排除规则
+    - **属性 6: 可用参与人员排除规则**
+    - **验证: 需求 3.6**
+
+- [x] 3. 迁移 Activity Repository
+  - [x] 3.1 重写 ActivityRepository 使用 Supabase
+    - 更新 `src/lib/repositories/activity.repository.ts`
+    - 实现 findById、findAll、findWithRounds、create、update、delete 方法
+    - 实现 addParticipants、removeParticipants 方法
+    - _需求: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
+  - [ ]* 3.2 编写属性测试：活动往返一致性
+    - **属性 7: 活动往返一致性**
+    - **验证: 需求 4.1, 4.2**
+  - [ ]* 3.3 编写属性测试：活动更新时间戳
+    - **属性 8: 活动更新时间戳**
+    - **验证: 需求 4.3**
+  - [ ]* 3.4 编写属性测试：活动级联删除
+    - **属性 9: 活动级联删除**
+    - **验证: 需求 4.4**
+  - [ ]* 3.5 编写属性测试：活动参与人员关联
+    - **属性 10: 活动参与人员关联**
+    - **验证: 需求 4.5, 4.6**
+
+- [-] 4. 迁移 Round Repository
+  - [x] 4.1 重写 RoundRepository 使用 Supabase
+    - 更新 `src/lib/repositories/round.repository.ts`
+    - 实现 findById、findByActivityId、create、update、delete 方法
+    - 实现 markAsDrawn、updateOrder 方法
+    - _需求: 5.1, 5.2, 5.3, 5.4, 5.5_
+  - [ ]* 4.2 编写属性测试：轮次顺序索引自增
+    - **属性 11: 轮次顺序索引自增**
+    - **验证: 需求 5.1**
+  - [ ]* 4.3 编写属性测试：轮次排序
+    - **属性 12: 轮次排序**
+    - **验证: 需求 5.2**
+  - [ ]* 4.4 编写属性测试：轮次更新一致性
+    - **属性 13: 轮次更新一致性**
+    - **验证: 需求 5.3, 5.4**
+  - [ ] 4.5 编写属性测试：轮次重排序一致性
+    - **属性 14: 轮次重排序一致性**
+    - **验证: 需求 5.5**
+
+- [-] 5. 迁移 Winner Repository
+  - [x] 5.1 重写 WinnerRepository 使用 Supabase
+    - 更新 `src/lib/repositories/winner.repository.ts`
+    - 实现 create、createMany、findByRoundId、findByActivityId 方法
+    - 实现 findByParticipantId、deleteByRoundId 方法
+    - _需求: 6.1, 6.2, 6.3, 6.4_
+  - [ ]* 5.2 编写属性测试：中奖记录往返一致性
+    - **属性 15: 中奖记录往返一致性**
+    - **验证: 需求 6.1, 6.2**
+  - [ ]* 5.3 编写属性测试：活动中奖记录排序
+    - **属性 16: 活动中奖记录排序**
+    - **验证: 需求 6.3**
+  - [ ]* 5.4 编写属性测试：按轮次删除中奖记录
+    - **属性 17: 按轮次删除中奖记录**
+    - **验证: 需求 6.4**
+
+- [ ] 6. 检查点 - 确保所有测试通过
+  - 确保所有测试通过，如有问题请询问用户。
+
+- [ ] 7. 清理和收尾
+  - [ ] 7.1 移除 SQLite 依赖
+    - 从 package.json 中移除 `better-sqlite3` 和 `@types/better-sqlite3`
+    - 删除 `src/lib/db/index.ts` 和 `src/lib/db/schema.ts` 文件
+    - _需求: 7.1, 7.2_
+  - [ ] 7.2 更新导入引用
+    - 更新 `src/lib/repositories/index.ts` 中的导出
+    - 确保所有 Repository 使用新的 Supabase 客户端
+    - _需求: 7.3_
+  - [ ] 7.3 创建环境变量示例文件
+    - 创建或更新 `.env.example` 文件，添加 `SUPABASE_KEY` 配置说明
+    - _需求: 1.1_
+
+- [ ] 8. 最终检查点 - 确保所有测试通过
+  - 确保所有测试通过，如有问题请询问用户。

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'roundId is required' }, { status: 400 });
     }
 
-    const result = lotteryService.executeDraw(roundId);
+    const result = await lotteryService.executeDraw(roundId);
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     if (error instanceof NotFoundError) {

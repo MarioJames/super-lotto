@@ -1,10 +1,10 @@
 import { roundRepository, activityRepository, participantRepository, winnerRepository } from '../repositories';
-import type { Participant, Round, DrawResult, WinnerWithDetails } from '../types';
+import type { Participant, DrawResult, WinnerWithDetails } from '../types';
 import { NotFoundError, InsufficientParticipantsError, AlreadyDrawnError } from '../types/errors';
 
 export class LotteryService {
-  executeDraw(roundId: number): DrawResult {
-    const round = roundRepository.findById(roundId);
+  async executeDraw(roundId: number): Promise<DrawResult> {
+    const round = await roundRepository.findById(roundId);
     if (!round) {
       throw new NotFoundError('Round', roundId);
     }
@@ -13,13 +13,13 @@ export class LotteryService {
       throw new AlreadyDrawnError(roundId);
     }
 
-    const activity = activityRepository.findById(round.activityId);
+    const activity = await activityRepository.findById(round.activityId);
     if (!activity) {
       throw new NotFoundError('Activity', round.activityId);
     }
 
     // 获取可用参与人员
-    const availableParticipants = participantRepository.findAvailableForRound(
+    const availableParticipants = await participantRepository.findAvailableForRound(
       round.activityId,
       activity.allowMultiWin
     );
@@ -32,10 +32,10 @@ export class LotteryService {
     const winners = this.randomSelect(availableParticipants, round.winnerCount);
 
     // 保存中奖记录
-    winnerRepository.createMany(roundId, winners.map(w => w.id));
+    await winnerRepository.createMany(roundId, winners.map(w => w.id));
 
     // 标记轮次已抽奖
-    roundRepository.markAsDrawn(roundId);
+    await roundRepository.markAsDrawn(roundId);
 
     return {
       round: { ...round, isDrawn: true },
@@ -45,28 +45,29 @@ export class LotteryService {
     };
   }
 
-  getDrawResult(roundId: number): WinnerWithDetails[] {
-    const round = roundRepository.findById(roundId);
+  async getDrawResult(roundId: number): Promise<WinnerWithDetails[]> {
+    const round = await roundRepository.findById(roundId);
     if (!round) {
       throw new NotFoundError('Round', roundId);
     }
-    return winnerRepository.findByRoundId(roundId);
+    return await winnerRepository.findByRoundId(roundId);
   }
 
-  getAvailableParticipants(activityId: number): Participant[] {
-    const activity = activityRepository.findById(activityId);
+
+  async getAvailableParticipants(activityId: number): Promise<Participant[]> {
+    const activity = await activityRepository.findById(activityId);
     if (!activity) {
       throw new NotFoundError('Activity', activityId);
     }
     return participantRepository.findAvailableForRound(activityId, activity.allowMultiWin);
   }
 
-  getActivityWinners(activityId: number): WinnerWithDetails[] {
-    const activity = activityRepository.findById(activityId);
+  async getActivityWinners(activityId: number): Promise<WinnerWithDetails[]> {
+    const activity = await activityRepository.findById(activityId);
     if (!activity) {
       throw new NotFoundError('Activity', activityId);
     }
-    return winnerRepository.findByActivityId(activityId);
+    return await winnerRepository.findByActivityId(activityId);
   }
 
   // Fisher-Yates 洗牌算法随机选择

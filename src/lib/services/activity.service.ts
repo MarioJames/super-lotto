@@ -4,25 +4,25 @@ import { MIN_ANIMATION_DURATION_MS, MAX_ANIMATION_DURATION_MS } from '../types';
 import { ValidationError, NotFoundError } from '../types/errors';
 
 export class ActivityService {
-  listActivities(): Activity[] {
+  async listActivities(): Promise<Activity[]> {
     return activityRepository.findAll();
   }
 
-  getActivity(id: number): ActivityWithRounds {
-    const activity = activityRepository.findWithRounds(id);
+  async getActivity(id: number): Promise<ActivityWithRounds> {
+    const activity = await activityRepository.findWithRounds(id);
     if (!activity) {
       throw new NotFoundError('Activity', id);
     }
     return activity;
   }
 
-  createActivity(data: CreateActivityDTO): Activity {
+  async createActivity(data: CreateActivityDTO): Promise<Activity> {
     this.validateActivityData(data);
     return activityRepository.create(data);
   }
 
-  updateActivity(id: number, data: UpdateActivityDTO): Activity {
-    const existing = activityRepository.findById(id);
+  async updateActivity(id: number, data: UpdateActivityDTO): Promise<Activity> {
+    const existing = await activityRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Activity', id);
     }
@@ -31,35 +31,35 @@ export class ActivityService {
       this.validateAnimationDuration(data.animationDurationMs);
     }
 
-    const updated = activityRepository.update(id, data);
+    const updated = await activityRepository.update(id, data);
     if (!updated) {
       throw new NotFoundError('Activity', id);
     }
     return updated;
   }
 
-  deleteActivity(id: number): boolean {
-    const existing = activityRepository.findById(id);
+  async deleteActivity(id: number): Promise<boolean> {
+    const existing = await activityRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Activity', id);
     }
     return activityRepository.delete(id);
   }
 
-  addParticipantsToActivity(activityId: number, participantIds: number[]): void {
-    const existing = activityRepository.findById(activityId);
+  async addParticipantsToActivity(activityId: number, participantIds: number[]): Promise<void> {
+    const existing = await activityRepository.findById(activityId);
     if (!existing) {
       throw new NotFoundError('Activity', activityId);
     }
-    activityRepository.addParticipants(activityId, participantIds);
+    await activityRepository.addParticipants(activityId, participantIds);
   }
 
-  removeParticipantsFromActivity(activityId: number, participantIds: number[]): void {
-    const existing = activityRepository.findById(activityId);
+  async removeParticipantsFromActivity(activityId: number, participantIds: number[]): Promise<void> {
+    const existing = await activityRepository.findById(activityId);
     if (!existing) {
       throw new NotFoundError('Activity', activityId);
     }
-    activityRepository.removeParticipants(activityId, participantIds);
+    await activityRepository.removeParticipants(activityId, participantIds);
   }
 
   private validateActivityData(data: CreateActivityDTO): void {

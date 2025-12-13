@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'participantIds must be an array' }, { status: 400 });
     }
 
-    activityService.addParticipantsToActivity(parseInt(id), participantIds);
+    await activityService.addParticipantsToActivity(parseInt(id), participantIds);
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -37,7 +37,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'participantIds must be an array' }, { status: 400 });
     }
 
-    activityService.removeParticipantsFromActivity(parseInt(id), participantIds);
+    await activityService.removeParticipantsFromActivity(parseInt(id), participantIds);
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof NotFoundError) {

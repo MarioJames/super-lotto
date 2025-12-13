@@ -1,50 +1,129 @@
-import { getDatabase } from '../db';
-import type { Activity, ActivityWithRounds, CreateActivityDTO, UpdateActivityDTO } from '../types';
-import { participantRepository } from './participant.repository';
-import { roundRepository } from './round.repository';
+import { getSupabaseClient } from '../db/supabase';
+import type { ActivityRow, ActivityInsert, ActivityUpdate, ActivityParticipantRow, RoundRow } from '../db/types';
+import type { Activity, ActivityWithRounds, CreateActivityDTO, UpdateActivityDTO, Round, Participant, LotteryMode } from '../types';
 import { DEFAULT_ANIMATION_DURATION_MS } from '../types';
-
-interface ActivityRow {
-  id: number;
-  name: string;
-  description: string;
-  allow_multi_win: number;
-  animation_duration_ms: number;
-  created_at: string;
-  updated_at: string;
-}
+import { parseSupabaseError, DatabaseError } from '../types/errors';
 
 function rowToActivity(row: ActivityRow): Activity {
   return {
     id: row.id,
     name: row.name,
     description: row.description || '',
-    allowMultiWin: row.allow_multi_win === 1,
+    allowMultiWin: row.allow_multi_win,
     animationDurationMs: row.animation_duration_ms,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
 }
 
+function rowToRound(row: RoundRow): Round {
+  return {
+    id: row.id,
+    activityId: row.activity_id,
+    prizeName: row.prize_name,
+    prizeDescription: row.prize_description || '',
+    winnerCount: row.winner_count,
+    orderIndex: row.order_index,
+    lotteryMode: row.lottery_mode as LotteryMode,
+    isDrawn: row.is_drawn,
+    createdAt: new Date(row.created_at),
+  };
+}
+
 export class ActivityRepository {
-  findById(id: number): Activity | null {
-    const db = getDatabase();
-    const row = db.prepare('SELECT * FROM activities WHERE id = ?').get(id) as ActivityRow | undefined;
-    return row ? rowToActivity(row) : null;
+  async findById(id: number): Promise<Activity | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw parseSupabaseError(error, 'findById');
+    }
+
+    return data ? rowToActivity(data as ActivityRow) : null;
   }
 
-  findAll(): Activity[] {
-    const db = getDatabase();
-    const rows = db.prepare('SELECT * FROM activities ORDER BY id DESC').all() as ActivityRow[];
-    return rows.map(rowToActivity);
+  async findAll(): Promise<Activity[]> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .order('id', { ascending: false });
+
+    if (error) {
+      throw parseSupabaseError(error, 'findAll');
+    }
+
+    return ((data || []) as ActivityRow[]).map(rowToActivity);
   }
 
-  findWithRounds(id: number): ActivityWithRounds | null {
-    const activity = this.findById(id);
+
+  async findWithRounds(id: number): Promise<ActivityWithRounds | null> {
+    const supabase = getSupabaseClient();
+
+    // Get activity
+    const activity = await this.findById(id);
     if (!activity) return null;
 
-    const rounds = roundRepository.findByActivityId(id);
-    const participants = participantRepository.findByActivityId(id);
+    // Get rounds for this activity
+    const { data: roundsData, error: roundsError } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('activity_id', id)
+      .order('order_index', { ascending: true });
+
+    if (roundsError) {
+      throw parseSupabaseError(roundsError, 'findWithRounds');
+    }
+
+    const rounds = ((roundsData || []) as RoundRow[]).map(rowToRound);
+
+    // Get participants for this activity
+    const { data: apData, error: apError } = await supabase
+      .from('activity_participants')
+      .select('participant_id')
+      .eq('activity_id', id);
+
+    if (apError) {
+      throw parseSupabaseError(apError, 'findWithRounds');
+    }
+
+    let participants: Participant[] = [];
+    if (apData && apData.length > 0) {
+      const participantIds = (apData as Pick<ActivityParticipantRow, 'participant_id'>[]).map(row => row.participant_id);
+
+      const { data: participantsData, error: participantsError } = await supabase
+        .from('participants')
+        .select('*')
+        .in('id', participantIds)
+        .order('id');
+
+      if (participantsError) {
+        throw parseSupabaseError(participantsError, 'findWithRounds');
+      }
+
+      participants = ((participantsData || []) as Array<{
+        id: number;
+        name: string;
+        employee_id: string;
+        department: string;
+        email: string;
+        created_at: string;
+      }>).map(row => ({
+        id: row.id,
+        name: row.name,
+        employeeId: row.employee_id,
+        department: row.department,
+        email: row.email,
+        createdAt: new Date(row.created_at),
+      }));
+    }
 
     return {
       ...activity,
@@ -53,85 +132,134 @@ export class ActivityRepository {
     };
   }
 
-  create(data: CreateActivityDTO): Activity {
-    const db = getDatabase();
+  async create(data: CreateActivityDTO): Promise<Activity> {
+    const supabase = getSupabaseClient();
     const animationDuration = data.animationDurationMs ?? DEFAULT_ANIMATION_DURATION_MS;
 
-    const result = db.prepare(`
-      INSERT INTO activities (name, description, allow_multi_win, animation_duration_ms)
-      VALUES (?, ?, ?, ?)
-    `).run(data.name, data.description, data.allowMultiWin ? 1 : 0, animationDuration);
+    const insertData: ActivityInsert = {
+      name: data.name,
+      description: data.description,
+      allow_multi_win: data.allowMultiWin,
+      animation_duration_ms: animationDuration,
+    };
 
-    const activityId = result.lastInsertRowid as number;
+    const { data: created, error } = await supabase
+      .from('activities')
+      .insert(insertData as never)
+      .select()
+      .single();
 
-    // 关联参与人员
+    if (error) {
+      throw parseSupabaseError(error, 'create');
+    }
+
+    if (!created) {
+      throw new DatabaseError('创建活动失败：未返回数据', 'create');
+    }
+
+    const activityId = (created as ActivityRow).id;
+
+    // Associate participants
     if (data.participantIds.length > 0) {
-      const insertParticipant = db.prepare(`
-        INSERT INTO activity_participants (activity_id, participant_id) VALUES (?, ?)
-      `);
-      for (const participantId of data.participantIds) {
-        insertParticipant.run(activityId, participantId);
+      const participantInserts = data.participantIds.map(participantId => ({
+        activity_id: activityId,
+        participant_id: participantId,
+      }));
+
+      const { error: apError } = await supabase
+        .from('activity_participants')
+        .insert(participantInserts as never);
+
+      if (apError) {
+        throw parseSupabaseError(apError, 'create');
       }
     }
 
-    return this.findById(activityId)!;
+    return rowToActivity(created as ActivityRow);
   }
 
-  update(id: number, data: UpdateActivityDTO): Activity | null {
-    const db = getDatabase();
-    const existing = this.findById(id);
+
+  async update(id: number, data: UpdateActivityDTO): Promise<Activity | null> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
     if (!existing) return null;
 
-    const updates: string[] = ['updated_at = CURRENT_TIMESTAMP'];
-    const values: (string | number)[] = [];
+    const updateData: ActivityUpdate = {
+      updated_at: new Date().toISOString(),
+    };
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
-    }
-    if (data.description !== undefined) {
-      updates.push('description = ?');
-      values.push(data.description);
-    }
-    if (data.allowMultiWin !== undefined) {
-      updates.push('allow_multi_win = ?');
-      values.push(data.allowMultiWin ? 1 : 0);
-    }
-    if (data.animationDurationMs !== undefined) {
-      updates.push('animation_duration_ms = ?');
-      values.push(data.animationDurationMs);
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.allowMultiWin !== undefined) updateData.allow_multi_win = data.allowMultiWin;
+    if (data.animationDurationMs !== undefined) updateData.animation_duration_ms = data.animationDurationMs;
+
+    const { data: updated, error } = await supabase
+      .from('activities')
+      .update(updateData as never)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw parseSupabaseError(error, 'update');
     }
 
-    values.push(id);
-    db.prepare(`UPDATE activities SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-
-    return this.findById(id);
+    return updated ? rowToActivity(updated as ActivityRow) : null;
   }
 
-  delete(id: number): boolean {
-    const db = getDatabase();
-    // 级联删除由外键约束处理
-    const result = db.prepare('DELETE FROM activities WHERE id = ?').run(id);
-    return result.changes > 0;
+  async delete(id: number): Promise<boolean> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
+    if (!existing) return false;
+
+    // Cascade delete is handled by foreign key constraints in PostgreSQL
+    const { error } = await supabase
+      .from('activities')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw parseSupabaseError(error, 'delete');
+    }
+
+    return true;
   }
 
-  addParticipants(activityId: number, participantIds: number[]): void {
-    const db = getDatabase();
-    const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO activity_participants (activity_id, participant_id) VALUES (?, ?)
-    `);
-    for (const participantId of participantIds) {
-      insertStmt.run(activityId, participantId);
+  async addParticipants(activityId: number, participantIds: number[]): Promise<void> {
+    const supabase = getSupabaseClient();
+
+    if (participantIds.length === 0) return;
+
+    const inserts = participantIds.map(participantId => ({
+      activity_id: activityId,
+      participant_id: participantId,
+    }));
+
+    // Use upsert to ignore duplicates (similar to INSERT OR IGNORE in SQLite)
+    const { error } = await supabase
+      .from('activity_participants')
+      .upsert(inserts as never, { onConflict: 'activity_id,participant_id', ignoreDuplicates: true });
+
+    if (error) {
+      throw parseSupabaseError(error, 'addParticipants');
     }
   }
 
-  removeParticipants(activityId: number, participantIds: number[]): void {
-    const db = getDatabase();
-    const deleteStmt = db.prepare(`
-      DELETE FROM activity_participants WHERE activity_id = ? AND participant_id = ?
-    `);
-    for (const participantId of participantIds) {
-      deleteStmt.run(activityId, participantId);
+  async removeParticipants(activityId: number, participantIds: number[]): Promise<void> {
+    const supabase = getSupabaseClient();
+
+    if (participantIds.length === 0) return;
+
+    const { error } = await supabase
+      .from('activity_participants')
+      .delete()
+      .eq('activity_id', activityId)
+      .in('participant_id', participantIds);
+
+    if (error) {
+      throw parseSupabaseError(error, 'removeParticipants');
     }
   }
 }

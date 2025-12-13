@@ -1,17 +1,7 @@
-import { getDatabase } from '../db';
+import { getSupabaseClient } from '../db/supabase';
+import type { RoundRow, RoundInsert, RoundUpdate } from '../db/types';
 import type { Round, CreateRoundDTO, UpdateRoundDTO, LotteryMode } from '../types';
-
-interface RoundRow {
-  id: number;
-  activity_id: number;
-  prize_name: string;
-  prize_description: string;
-  winner_count: number;
-  order_index: number;
-  lottery_mode: string;
-  is_drawn: number;
-  created_at: string;
-}
+import { parseSupabaseError, DatabaseError } from '../types/errors';
 
 function rowToRound(row: RoundRow): Round {
   return {
@@ -22,99 +12,175 @@ function rowToRound(row: RoundRow): Round {
     winnerCount: row.winner_count,
     orderIndex: row.order_index,
     lotteryMode: row.lottery_mode as LotteryMode,
-    isDrawn: row.is_drawn === 1,
+    isDrawn: row.is_drawn,
     createdAt: new Date(row.created_at),
   };
 }
 
 export class RoundRepository {
-  findById(id: number): Round | null {
-    const db = getDatabase();
-    const row = db.prepare('SELECT * FROM rounds WHERE id = ?').get(id) as RoundRow | undefined;
-    return row ? rowToRound(row) : null;
+  async findById(id: number): Promise<Round | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw parseSupabaseError(error, 'findById');
+    }
+
+    return data ? rowToRound(data as RoundRow) : null;
   }
 
-  findByActivityId(activityId: number): Round[] {
-    const db = getDatabase();
-    const rows = db.prepare(`
-      SELECT * FROM rounds WHERE activity_id = ? ORDER BY order_index ASC
-    `).all(activityId) as RoundRow[];
-    return rows.map(rowToRound);
+  async findByActivityId(activityId: number): Promise<Round[]> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('activity_id', activityId)
+      .order('order_index', { ascending: true });
+
+    if (error) {
+      throw parseSupabaseError(error, 'findByActivityId');
+    }
+
+    return ((data || []) as RoundRow[]).map(rowToRound);
   }
 
-  create(activityId: number, data: CreateRoundDTO): Round {
-    const db = getDatabase();
+  async create(activityId: number, data: CreateRoundDTO): Promise<Round> {
+    const supabase = getSupabaseClient();
 
     // 获取当前最大 order_index
-    const maxOrder = db.prepare(`
-      SELECT COALESCE(MAX(order_index), -1) as max_order FROM rounds WHERE activity_id = ?
-    `).get(activityId) as { max_order: number };
+    const { data: maxOrderData, error: maxOrderError } = await supabase
+      .from('rounds')
+      .select('order_index')
+      .eq('activity_id', activityId)
+      .order('order_index', { ascending: false })
+      .limit(1)
+      .single();
 
-    const orderIndex = maxOrder.max_order + 1;
+    let orderIndex = 0;
+    if (maxOrderError) {
+      // PGRST116 表示没有找到记录，这是正常情况（第一个轮次）
+      if (maxOrderError.code !== 'PGRST116') {
+        throw parseSupabaseError(maxOrderError, 'create');
+      }
+    } else if (maxOrderData) {
+      orderIndex = (maxOrderData as Pick<RoundRow, 'order_index'>).order_index + 1;
+    }
 
-    const result = db.prepare(`
-      INSERT INTO rounds (activity_id, prize_name, prize_description, winner_count, order_index, lottery_mode)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(activityId, data.prizeName, data.prizeDescription, data.winnerCount, orderIndex, data.lotteryMode);
+    const insertData: RoundInsert = {
+      activity_id: activityId,
+      prize_name: data.prizeName,
+      prize_description: data.prizeDescription,
+      winner_count: data.winnerCount,
+      order_index: orderIndex,
+      lottery_mode: data.lotteryMode,
+      is_drawn: false,
+    };
 
-    return this.findById(result.lastInsertRowid as number)!;
+    const { data: created, error } = await supabase
+      .from('rounds')
+      .insert(insertData as never)
+      .select()
+      .single();
+
+    if (error) {
+      throw parseSupabaseError(error, 'create');
+    }
+
+    if (!created) {
+      throw new DatabaseError('创建轮次失败：未返回数据', 'create');
+    }
+
+    return rowToRound(created as RoundRow);
   }
 
-  update(id: number, data: UpdateRoundDTO): Round | null {
-    const db = getDatabase();
-    const existing = this.findById(id);
+  async update(id: number, data: UpdateRoundDTO): Promise<Round | null> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
     if (!existing) return null;
 
-    const updates: string[] = [];
-    const values: (string | number)[] = [];
+    const updateData: RoundUpdate = {};
+    if (data.prizeName !== undefined) updateData.prize_name = data.prizeName;
+    if (data.prizeDescription !== undefined) updateData.prize_description = data.prizeDescription;
+    if (data.winnerCount !== undefined) updateData.winner_count = data.winnerCount;
+    if (data.orderIndex !== undefined) updateData.order_index = data.orderIndex;
+    if (data.lotteryMode !== undefined) updateData.lottery_mode = data.lotteryMode;
 
-    if (data.prizeName !== undefined) {
-      updates.push('prize_name = ?');
-      values.push(data.prizeName);
-    }
-    if (data.prizeDescription !== undefined) {
-      updates.push('prize_description = ?');
-      values.push(data.prizeDescription);
-    }
-    if (data.winnerCount !== undefined) {
-      updates.push('winner_count = ?');
-      values.push(data.winnerCount);
-    }
-    if (data.orderIndex !== undefined) {
-      updates.push('order_index = ?');
-      values.push(data.orderIndex);
-    }
-    if (data.lotteryMode !== undefined) {
-      updates.push('lottery_mode = ?');
-      values.push(data.lotteryMode);
+    if (Object.keys(updateData).length === 0) {
+      return existing;
     }
 
-    if (updates.length === 0) return existing;
+    const { data: updated, error } = await supabase
+      .from('rounds')
+      .update(updateData as never)
+      .eq('id', id)
+      .select()
+      .single();
 
-    values.push(id);
-    db.prepare(`UPDATE rounds SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    if (error) {
+      throw parseSupabaseError(error, 'update');
+    }
 
-    return this.findById(id);
+    return updated ? rowToRound(updated as RoundRow) : null;
   }
 
-  delete(id: number): boolean {
-    const db = getDatabase();
-    const result = db.prepare('DELETE FROM rounds WHERE id = ?').run(id);
-    return result.changes > 0;
+  async delete(id: number): Promise<boolean> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
+    if (!existing) return false;
+
+    const { error } = await supabase
+      .from('rounds')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw parseSupabaseError(error, 'delete');
+    }
+
+    return true;
   }
 
-  markAsDrawn(id: number): boolean {
-    const db = getDatabase();
-    const result = db.prepare('UPDATE rounds SET is_drawn = 1 WHERE id = ?').run(id);
-    return result.changes > 0;
+  async markAsDrawn(id: number): Promise<boolean> {
+    const supabase = getSupabaseClient();
+
+    const existing = await this.findById(id);
+    if (!existing) return false;
+
+    const { error } = await supabase
+      .from('rounds')
+      .update({ is_drawn: true } as never)
+      .eq('id', id);
+
+    if (error) {
+      throw parseSupabaseError(error, 'markAsDrawn');
+    }
+
+    return true;
   }
 
-  updateOrder(activityId: number, roundIds: number[]): void {
-    const db = getDatabase();
-    const updateStmt = db.prepare('UPDATE rounds SET order_index = ? WHERE id = ? AND activity_id = ?');
+  async updateOrder(activityId: number, roundIds: number[]): Promise<void> {
+    const supabase = getSupabaseClient();
 
+    // 逐个更新轮次的 order_index
     for (let i = 0; i < roundIds.length; i++) {
-      updateStmt.run(i, roundIds[i], activityId);
+      const { error } = await supabase
+        .from('rounds')
+        .update({ order_index: i } as never)
+        .eq('id', roundIds[i])
+        .eq('activity_id', activityId);
+
+      if (error) {
+        throw parseSupabaseError(error, 'updateOrder');
+      }
     }
   }
 }

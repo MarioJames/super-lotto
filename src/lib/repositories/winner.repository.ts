@@ -1,28 +1,7 @@
-import { getDatabase } from '../db';
+import { getSupabaseClient } from '../db/supabase';
+import type { WinnerRow, WinnerInsert, ParticipantRow, RoundRow } from '../db/types';
 import type { Winner, WinnerWithDetails, Participant, Round, LotteryMode } from '../types';
-
-interface WinnerRow {
-  id: number;
-  round_id: number;
-  participant_id: number;
-  drawn_at: string;
-}
-
-interface WinnerWithDetailsRow extends WinnerRow {
-  participant_name: string;
-  participant_employee_id: string;
-  participant_department: string;
-  participant_email: string;
-  participant_created_at: string;
-  round_activity_id: number;
-  round_prize_name: string;
-  round_prize_description: string;
-  round_winner_count: number;
-  round_order_index: number;
-  round_lottery_mode: string;
-  round_is_drawn: number;
-  round_created_at: string;
-}
+import { parseSupabaseError, DatabaseError } from '../types/errors';
 
 function rowToWinner(row: WinnerRow): Winner {
   return {
@@ -33,134 +12,229 @@ function rowToWinner(row: WinnerRow): Winner {
   };
 }
 
-function rowToWinnerWithDetails(row: WinnerWithDetailsRow): WinnerWithDetails {
-  const participant: Participant = {
-    id: row.participant_id,
-    name: row.participant_name,
-    employeeId: row.participant_employee_id,
-    department: row.participant_department,
-    email: row.participant_email,
-    createdAt: new Date(row.participant_created_at),
+function rowToParticipant(row: ParticipantRow): Participant {
+  return {
+    id: row.id,
+    name: row.name,
+    employeeId: row.employee_id,
+    department: row.department,
+    email: row.email,
+    createdAt: new Date(row.created_at),
   };
+}
 
-  const round: Round = {
-    id: row.round_id,
-    activityId: row.round_activity_id,
-    prizeName: row.round_prize_name,
-    prizeDescription: row.round_prize_description || '',
-    winnerCount: row.round_winner_count,
-    orderIndex: row.round_order_index,
-    lotteryMode: row.round_lottery_mode as LotteryMode,
-    isDrawn: row.round_is_drawn === 1,
-    createdAt: new Date(row.round_created_at),
+function rowToRound(row: RoundRow): Round {
+  return {
+    id: row.id,
+    activityId: row.activity_id,
+    prizeName: row.prize_name,
+    prizeDescription: row.prize_description || '',
+    winnerCount: row.winner_count,
+    orderIndex: row.order_index,
+    lotteryMode: row.lottery_mode as LotteryMode,
+    isDrawn: row.is_drawn,
+    createdAt: new Date(row.created_at),
   };
+}
 
+interface WinnerWithJoins {
+  id: number;
+  round_id: number;
+  participant_id: number;
+  drawn_at: string;
+  participants: ParticipantRow;
+  rounds: RoundRow;
+}
+
+function joinedRowToWinnerWithDetails(row: WinnerWithJoins): WinnerWithDetails {
   return {
     id: row.id,
     roundId: row.round_id,
     participantId: row.participant_id,
     drawnAt: new Date(row.drawn_at),
-    participant,
-    round,
+    participant: rowToParticipant(row.participants),
+    round: rowToRound(row.rounds),
   };
 }
 
 export class WinnerRepository {
-  create(roundId: number, participantId: number): Winner {
-    const db = getDatabase();
-    const result = db.prepare(`
-      INSERT INTO winners (round_id, participant_id) VALUES (?, ?)
-    `).run(roundId, participantId);
+  async create(roundId: number, participantId: number): Promise<Winner> {
+    const supabase = getSupabaseClient();
+    const insertData: WinnerInsert = {
+      round_id: roundId,
+      participant_id: participantId,
+    };
 
-    const row = db.prepare('SELECT * FROM winners WHERE id = ?').get(result.lastInsertRowid) as WinnerRow;
-    return rowToWinner(row);
+    const { data, error } = await supabase
+      .from('winners')
+      .insert(insertData as never)
+      .select()
+      .single();
+
+    if (error) {
+      throw parseSupabaseError(error, 'create');
+    }
+
+    if (!data) {
+      throw new DatabaseError('创建中奖记录失败：未返回数据', 'create');
+    }
+
+    return rowToWinner(data as WinnerRow);
   }
 
-  createMany(roundId: number, participantIds: number[]): Winner[] {
-    const db = getDatabase();
-    const insertStmt = db.prepare(`
-      INSERT INTO winners (round_id, participant_id) VALUES (?, ?)
-    `);
+  async createMany(roundId: number, participantIds: number[]): Promise<Winner[]> {
+    const supabase = getSupabaseClient();
 
-    const winners: Winner[] = [];
-    for (const participantId of participantIds) {
-      const result = insertStmt.run(roundId, participantId);
-      const row = db.prepare('SELECT * FROM winners WHERE id = ?').get(result.lastInsertRowid) as WinnerRow;
-      winners.push(rowToWinner(row));
+    if (participantIds.length === 0) {
+      return [];
     }
+
+    const insertData: WinnerInsert[] = participantIds.map(participantId => ({
+      round_id: roundId,
+      participant_id: participantId,
+    }));
+
+    const { data, error } = await supabase
+      .from('winners')
+      .insert(insertData as never[])
+      .select();
+
+    if (error) {
+      throw parseSupabaseError(error, 'createMany');
+    }
+
+    if (!data) {
+      throw new DatabaseError('批量创建中奖记录失败：未返回数据', 'createMany');
+    }
+
+    return (data as WinnerRow[]).map(rowToWinner);
+  }
+
+  async findByRoundId(roundId: number): Promise<WinnerWithDetails[]> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('winners')
+      .select(`
+        id,
+        round_id,
+        participant_id,
+        drawn_at,
+        participants (*),
+        rounds (*)
+      `)
+      .eq('round_id', roundId)
+      .order('id');
+
+    if (error) {
+      throw parseSupabaseError(error, 'findByRoundId');
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    return (data as unknown as WinnerWithJoins[]).map(joinedRowToWinnerWithDetails);
+  }
+
+  async findByActivityId(activityId: number): Promise<WinnerWithDetails[]> {
+    const supabase = getSupabaseClient();
+
+    // First get all rounds for this activity to get their IDs
+    const { data: rounds, error: roundsError } = await supabase
+      .from('rounds')
+      .select('id, order_index')
+      .eq('activity_id', activityId)
+      .order('order_index');
+
+    if (roundsError) {
+      throw parseSupabaseError(roundsError, 'findByActivityId');
+    }
+
+    if (!rounds || rounds.length === 0) {
+      return [];
+    }
+
+    const roundIds = (rounds as Pick<RoundRow, 'id' | 'order_index'>[]).map(r => r.id);
+
+    // Get winners with joins
+    const { data, error } = await supabase
+      .from('winners')
+      .select(`
+        id,
+        round_id,
+        participant_id,
+        drawn_at,
+        participants (*),
+        rounds (*)
+      `)
+      .in('round_id', roundIds)
+      .order('id');
+
+    if (error) {
+      throw parseSupabaseError(error, 'findByActivityId');
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    const winners = (data as unknown as WinnerWithJoins[]).map(joinedRowToWinnerWithDetails);
+
+    // Sort by round order_index, then by winner id
+    winners.sort((a, b) => {
+      if (a.round.orderIndex !== b.round.orderIndex) {
+        return a.round.orderIndex - b.round.orderIndex;
+      }
+      return a.id - b.id;
+    });
 
     return winners;
   }
 
-  findByRoundId(roundId: number): WinnerWithDetails[] {
-    const db = getDatabase();
-    const rows = db.prepare(`
-      SELECT
-        w.*,
-        p.name as participant_name,
-        p.employee_id as participant_employee_id,
-        p.department as participant_department,
-        p.email as participant_email,
-        p.created_at as participant_created_at,
-        r.activity_id as round_activity_id,
-        r.prize_name as round_prize_name,
-        r.prize_description as round_prize_description,
-        r.winner_count as round_winner_count,
-        r.order_index as round_order_index,
-        r.lottery_mode as round_lottery_mode,
-        r.is_drawn as round_is_drawn,
-        r.created_at as round_created_at
-      FROM winners w
-      INNER JOIN participants p ON w.participant_id = p.id
-      INNER JOIN rounds r ON w.round_id = r.id
-      WHERE w.round_id = ?
-      ORDER BY w.id
-    `).all(roundId) as WinnerWithDetailsRow[];
+  async findByParticipantId(participantId: number): Promise<Winner[]> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('winners')
+      .select('*')
+      .eq('participant_id', participantId)
+      .order('id');
 
-    return rows.map(rowToWinnerWithDetails);
+    if (error) {
+      throw parseSupabaseError(error, 'findByParticipantId');
+    }
+
+    return ((data || []) as WinnerRow[]).map(rowToWinner);
   }
 
-  findByActivityId(activityId: number): WinnerWithDetails[] {
-    const db = getDatabase();
-    const rows = db.prepare(`
-      SELECT
-        w.*,
-        p.name as participant_name,
-        p.employee_id as participant_employee_id,
-        p.department as participant_department,
-        p.email as participant_email,
-        p.created_at as participant_created_at,
-        r.activity_id as round_activity_id,
-        r.prize_name as round_prize_name,
-        r.prize_description as round_prize_description,
-        r.winner_count as round_winner_count,
-        r.order_index as round_order_index,
-        r.lottery_mode as round_lottery_mode,
-        r.is_drawn as round_is_drawn,
-        r.created_at as round_created_at
-      FROM winners w
-      INNER JOIN participants p ON w.participant_id = p.id
-      INNER JOIN rounds r ON w.round_id = r.id
-      WHERE r.activity_id = ?
-      ORDER BY r.order_index, w.id
-    `).all(activityId) as WinnerWithDetailsRow[];
+  async deleteByRoundId(roundId: number): Promise<number> {
+    const supabase = getSupabaseClient();
 
-    return rows.map(rowToWinnerWithDetails);
-  }
+    // First count how many records will be deleted
+    const { data: existing, error: countError } = await supabase
+      .from('winners')
+      .select('id')
+      .eq('round_id', roundId);
 
-  findByParticipantId(participantId: number): Winner[] {
-    const db = getDatabase();
-    const rows = db.prepare(`
-      SELECT * FROM winners WHERE participant_id = ? ORDER BY id
-    `).all(participantId) as WinnerRow[];
+    if (countError) {
+      throw parseSupabaseError(countError, 'deleteByRoundId');
+    }
 
-    return rows.map(rowToWinner);
-  }
+    const count = existing?.length || 0;
 
-  deleteByRoundId(roundId: number): number {
-    const db = getDatabase();
-    const result = db.prepare('DELETE FROM winners WHERE round_id = ?').run(roundId);
-    return result.changes;
+    if (count === 0) {
+      return 0;
+    }
+
+    const { error } = await supabase
+      .from('winners')
+      .delete()
+      .eq('round_id', roundId);
+
+    if (error) {
+      throw parseSupabaseError(error, 'deleteByRoundId');
+    }
+
+    return count;
   }
 }
 

@@ -7,7 +7,7 @@ type RouteParams = { params: Promise<{ roundId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { roundId } = await params;
-    const winners = lotteryService.getDrawResult(parseInt(roundId));
+    const winners = await lotteryService.getDrawResult(parseInt(roundId));
     return NextResponse.json({ success: true, data: winners });
   } catch (error) {
     if (error instanceof NotFoundError) {

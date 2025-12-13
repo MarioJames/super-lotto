@@ -4,23 +4,23 @@ import type { Participant, CreateParticipantDTO, UpdateParticipantDTO, Participa
 import { ValidationError, NotFoundError } from '../types/errors';
 
 export class ParticipantService {
-  listParticipants(): Participant[] {
+  async listParticipants(): Promise<Participant[]> {
     return participantRepository.findAll();
   }
 
-  getParticipant(id: number): Participant {
-    const participant = participantRepository.findById(id);
+  async getParticipant(id: number): Promise<Participant> {
+    const participant = await participantRepository.findById(id);
     if (!participant) {
       throw new NotFoundError('Participant', id);
     }
     return participant;
   }
 
-  addParticipant(data: CreateParticipantDTO): Participant {
+  async addParticipant(data: CreateParticipantDTO): Promise<Participant> {
     this.validateParticipantData(data);
 
     // 检查工号是否已存在
-    const existing = participantRepository.findByEmployeeId(data.employeeId);
+    const existing = await participantRepository.findByEmployeeId(data.employeeId);
     if (existing) {
       throw new ValidationError('Employee ID already exists', { employeeId: data.employeeId });
     }
@@ -28,36 +28,37 @@ export class ParticipantService {
     return participantRepository.create(data);
   }
 
-  updateParticipant(id: number, data: UpdateParticipantDTO): Participant {
-    const existing = participantRepository.findById(id);
+  async updateParticipant(id: number, data: UpdateParticipantDTO): Promise<Participant> {
+    const existing = await participantRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Participant', id);
     }
 
     // 如果更新工号，检查是否与其他人重复
     if (data.employeeId && data.employeeId !== existing.employeeId) {
-      const duplicate = participantRepository.findByEmployeeId(data.employeeId);
+      const duplicate = await participantRepository.findByEmployeeId(data.employeeId);
       if (duplicate) {
         throw new ValidationError('Employee ID already exists', { employeeId: data.employeeId });
       }
     }
 
-    const updated = participantRepository.update(id, data);
+    const updated = await participantRepository.update(id, data);
     if (!updated) {
       throw new NotFoundError('Participant', id);
     }
     return updated;
   }
 
-  deleteParticipant(id: number): boolean {
-    const existing = participantRepository.findById(id);
+
+  async deleteParticipant(id: number): Promise<boolean> {
+    const existing = await participantRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Participant', id);
     }
     return participantRepository.delete(id);
   }
 
-  importParticipantsFromCSV(csvContent: string): ImportResult {
+  async importParticipantsFromCSV(csvContent: string): Promise<ImportResult> {
     let records: ParticipantCSVRow[];
 
     try {

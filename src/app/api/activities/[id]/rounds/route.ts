@@ -7,7 +7,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const rounds = roundService.getRounds(parseInt(id));
+    const rounds = await roundService.getRounds(parseInt(id));
     return NextResponse.json({ success: true, data: rounds });
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const round = roundService.addRound(parseInt(id), body);
+    const round = await roundService.addRound(parseInt(id), body);
     return NextResponse.json({ success: true, data: round }, { status: 201 });
   } catch (error) {
     if (error instanceof NotFoundError) {

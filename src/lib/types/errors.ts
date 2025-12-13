@@ -40,10 +40,75 @@ export class InsufficientParticipantsError extends LotteryError {
 
 // 数据库错误
 export class DatabaseError extends LotteryError {
-  constructor(message: string, originalError?: Error) {
-    super(message, 'DATABASE_ERROR', { originalError: originalError?.message });
+  public readonly operation: string;
+  public readonly cause?: Error;
+
+  constructor(message: string, operation: string, cause?: Error) {
+    super(message, 'DATABASE_ERROR', {
+      operation,
+      originalError: cause?.message
+    });
     this.name = 'DatabaseError';
+    this.operation = operation;
+    this.cause = cause;
   }
+}
+
+// 唯一约束违反错误
+export class UniqueConstraintError extends DatabaseError {
+  public readonly field: string;
+
+  constructor(field: string, operation: string, cause?: Error) {
+    super(`字段值重复: ${field}`, operation, cause);
+    this.name = 'UniqueConstraintError';
+    this.code = 'UNIQUE_CONSTRAINT_ERROR';
+    this.field = field;
+  }
+}
+
+// 外键约束违反错误
+export class ForeignKeyError extends DatabaseError {
+  public readonly relationship: string;
+
+  constructor(relationship: string, operation: string, cause?: Error) {
+    super(`无效引用: ${relationship}`, operation, cause);
+    this.name = 'ForeignKeyError';
+    this.code = 'FOREIGN_KEY_ERROR';
+    this.relationship = relationship;
+  }
+}
+
+/**
+ * 解析 Supabase/PostgreSQL 错误并返回适当的错误类型
+ * PostgreSQL 错误码:
+ * - 23505: 唯一约束违反
+ * - 23503: 外键约束违反
+ */
+export function parseSupabaseError(
+  error: { code?: string; message?: string; details?: string },
+  operation: string
+): DatabaseError {
+  const pgError = error as { code?: string; message?: string; details?: string };
+
+  if (pgError.code === '23505') {
+    // 尝试从错误消息中提取字段名
+    const fieldMatch = pgError.message?.match(/Key \((\w+)\)/);
+    const field = fieldMatch ? fieldMatch[1] : 'unknown';
+    return new UniqueConstraintError(field, operation, new Error(pgError.message));
+  }
+
+  if (pgError.code === '23503') {
+    // 尝试从错误消息中提取关系名
+    const relationMatch = pgError.message?.match(/table "(\w+)"/);
+    const relationship = relationMatch ? relationMatch[1] : 'unknown';
+    return new ForeignKeyError(relationship, operation, new Error(pgError.message));
+  }
+
+  return new DatabaseError(
+    pgError.message || '数据库操作失败',
+    operation,
+    new Error(pgError.message)
+  );
 }
 
 // CSV 解析错误

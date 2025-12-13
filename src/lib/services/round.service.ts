@@ -3,24 +3,24 @@ import type { Round, CreateRoundDTO, UpdateRoundDTO } from '../types';
 import { ValidationError, NotFoundError } from '../types/errors';
 
 export class RoundService {
-  getRounds(activityId: number): Round[] {
-    const activity = activityRepository.findById(activityId);
+  async getRounds(activityId: number): Promise<Round[]> {
+    const activity = await activityRepository.findById(activityId);
     if (!activity) {
       throw new NotFoundError('Activity', activityId);
     }
     return roundRepository.findByActivityId(activityId);
   }
 
-  getRound(id: number): Round {
-    const round = roundRepository.findById(id);
+  async getRound(id: number): Promise<Round> {
+    const round = await roundRepository.findById(id);
     if (!round) {
       throw new NotFoundError('Round', id);
     }
     return round;
   }
 
-  addRound(activityId: number, data: CreateRoundDTO): Round {
-    const activity = activityRepository.findById(activityId);
+  async addRound(activityId: number, data: CreateRoundDTO): Promise<Round> {
+    const activity = await activityRepository.findById(activityId);
     if (!activity) {
       throw new NotFoundError('Activity', activityId);
     }
@@ -29,8 +29,8 @@ export class RoundService {
     return roundRepository.create(activityId, data);
   }
 
-  updateRound(id: number, data: UpdateRoundDTO): Round {
-    const existing = roundRepository.findById(id);
+  async updateRound(id: number, data: UpdateRoundDTO): Promise<Round> {
+    const existing = await roundRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Round', id);
     }
@@ -39,27 +39,27 @@ export class RoundService {
       throw new ValidationError('Winner count must be at least 1');
     }
 
-    const updated = roundRepository.update(id, data);
+    const updated = await roundRepository.update(id, data);
     if (!updated) {
       throw new NotFoundError('Round', id);
     }
     return updated;
   }
 
-  deleteRound(id: number): boolean {
-    const existing = roundRepository.findById(id);
+  async deleteRound(id: number): Promise<boolean> {
+    const existing = await roundRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Round', id);
     }
     return roundRepository.delete(id);
   }
 
-  reorderRounds(activityId: number, roundIds: number[]): void {
-    const activity = activityRepository.findById(activityId);
+  async reorderRounds(activityId: number, roundIds: number[]): Promise<void> {
+    const activity = await activityRepository.findById(activityId);
     if (!activity) {
       throw new NotFoundError('Activity', activityId);
     }
-    roundRepository.updateOrder(activityId, roundIds);
+    await roundRepository.updateOrder(activityId, roundIds);
   }
 
   private validateRoundData(data: CreateRoundDTO): void {

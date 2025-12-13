@@ -7,7 +7,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const csv = exportService.exportRoundWinners(parseInt(id));
+    const csv = await exportService.exportRoundWinners(parseInt(id));
 
     return new NextResponse(csv, {
       headers: {
