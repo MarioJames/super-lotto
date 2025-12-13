@@ -1,9 +1,15 @@
+'use client';
+
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowRight, Calendar, Gift, Sparkles, Users } from 'lucide-react';
+import { ArrowRight, Calendar, Gift, Play, Sparkles, Users } from 'lucide-react';
 import Link from 'next/link';
+import { DemoLotteryModal } from '@/components/demo/DemoLotteryModal';
 
 export default function HomePage() {
+  const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
+
   return (
     <div className="space-y-8">
       <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-background via-background to-muted p-6 md:p-10">
@@ -40,6 +46,15 @@ export default function HomePage() {
               </Button>
               <Button asChild size="lg" variant="outline" className="sm:w-auto">
                 <Link href="/participants">先导入参与人员</Link>
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                className="sm:w-auto bg-gradient-to-r from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 border-purple-500/30"
+                onClick={() => setIsDemoModalOpen(true)}
+              >
+                <Play className="h-4 w-4" />
+                体验演示
               </Button>
             </div>
 
@@ -165,6 +180,12 @@ export default function HomePage() {
           建议先完成参与人员导入与清洗（部门/工号），再创建活动并在每轮抽奖前确认奖品与人数设置。
         </CardContent>
       </Card>
+
+      {/* Demo Mode Modal */}
+      <DemoLotteryModal
+        isOpen={isDemoModalOpen}
+        onClose={() => setIsDemoModalOpen(false)}
+      />
     </div>
   );
 }

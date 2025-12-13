@@ -1,0 +1,50 @@
+# Implementation Plan
+
+- [x] 1. Create mock data generator utilities
+  - [x] 1.1 Create mock data generator file with Chinese name pools
+    - Create `src/lib/demo/mock-generator.ts`
+    - Define surname and given name character pools
+    - Define department name pool
+    - _Requirements: 1.2, 2.1_
+  - [x] 1.2 Implement generateMockParticipants function
+    - Generate random count (10-30) of participants
+    - Create unique IDs, Chinese names, employee IDs, departments, emails
+    - Return array matching Participant interface
+    - _Requirements: 1.2, 2.1_
+  - [x] 1.3 Implement selectRandomMode function
+    - Accept optional excludeModes array
+    - Return random LotteryMode not in excluded list
+    - Reset exclusion when all modes exhausted
+    - _Requirements: 1.3, 4.2, 4.3_
+
+- [x] 2. Create DemoLotteryModal component
+  - [x] 2.1 Create modal component structure
+    - Create `src/components/demo/DemoLotteryModal.tsx`
+    - Implement modal open/close with Dialog component
+    - Support Escape key and click-outside to close
+    - _Requirements: 3.2, 3.4_
+  - [x] 2.2 Implement demo state management
+    - Track status: idle, running, completed
+    - Store generated participants and selected mode
+    - Track previous modes for variety
+    - _Requirements: 1.1, 4.3_
+  - [x] 2.3 Integrate lottery mode components
+    - Dynamically render selected lottery mode component
+    - Pass mock participants and handle onComplete callback
+    - Use 5000ms animation duration for demo
+    - _Requirements: 2.3_
+  - [x] 2.4 Implement result display and retry functionality
+    - Show winners after animation completes
+    - Add "换个模式" button to try different mode
+    - Regenerate participants and select new mode on retry
+    - _Requirements: 3.3, 4.1, 4.2_
+
+- [x] 3. Add demo button to home page
+  - [x] 3.1 Add demo button in hero section
+    - Add prominent "体验演示" button in home page hero
+    - Style with appropriate icon and visual emphasis
+    - _Requirements: 3.1_
+  - [x] 3.2 Integrate DemoLotteryModal with home page
+    - Add modal state management to home page
+    - Connect button click to open modal
+    - _Requirements: 1.1_
