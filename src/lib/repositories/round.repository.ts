@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '../db/supabase';
 import type { RoundRow, RoundInsert, RoundUpdate } from '../db/types';
 import type { Round, CreateRoundDTO, UpdateRoundDTO, LotteryMode } from '../types';
+import { DEFAULT_ANIMATION_DURATION_MS } from '../types';
 import { parseSupabaseError, DatabaseError } from '../types/errors';
 
 function rowToRound(row: RoundRow): Round {
@@ -12,6 +13,7 @@ function rowToRound(row: RoundRow): Round {
     winnerCount: row.winner_count,
     orderIndex: row.order_index,
     lotteryMode: row.lottery_mode as LotteryMode,
+    animationDurationMs: row.animation_duration_ms,
     isDrawn: row.is_drawn,
     createdAt: new Date(row.created_at),
   };
@@ -51,6 +53,7 @@ export class RoundRepository {
     return ((data || []) as RoundRow[]).map(rowToRound);
   }
 
+
   async create(activityId: number, data: CreateRoundDTO): Promise<Round> {
     const supabase = getSupabaseClient();
 
@@ -73,6 +76,9 @@ export class RoundRepository {
       orderIndex = (maxOrderData as Pick<RoundRow, 'order_index'>).order_index + 1;
     }
 
+    // 使用传入的动画时长或默认值
+    const animationDurationMs = data.animationDurationMs ?? DEFAULT_ANIMATION_DURATION_MS;
+
     const insertData: RoundInsert = {
       activity_id: activityId,
       prize_name: data.prizeName,
@@ -80,6 +86,7 @@ export class RoundRepository {
       winner_count: data.winnerCount,
       order_index: orderIndex,
       lottery_mode: data.lotteryMode,
+      animation_duration_ms: animationDurationMs,
       is_drawn: false,
     };
 
@@ -112,6 +119,7 @@ export class RoundRepository {
     if (data.winnerCount !== undefined) updateData.winner_count = data.winnerCount;
     if (data.orderIndex !== undefined) updateData.order_index = data.orderIndex;
     if (data.lotteryMode !== undefined) updateData.lottery_mode = data.lotteryMode;
+    if (data.animationDurationMs !== undefined) updateData.animation_duration_ms = data.animationDurationMs;
 
     if (Object.keys(updateData).length === 0) {
       return existing;

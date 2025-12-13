@@ -29,8 +29,10 @@ export function WheelOfFortune({ participants, winnerCount, durationMs, onComple
     const spins = 5 + Math.random() * 3;
     const targetRotation = spins * 360 + Math.random() * 360;
 
-    setRotation(targetRotation);
-    setShowResult(false);
+    const rafId = requestAnimationFrame(() => {
+      setRotation(targetRotation);
+      setShowResult(false);
+    });
 
     const timer = setTimeout(() => {
       setCurrentWinners(winnersRef.current);
@@ -38,7 +40,10 @@ export function WheelOfFortune({ participants, winnerCount, durationMs, onComple
       onComplete(winnersRef.current);
     }, durationMs);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+    };
   }, [isRunning, participants, winnerCount, durationMs, onComplete]);
 
   const segmentAngle = 360 / Math.max(participants.length, 1);

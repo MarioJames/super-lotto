@@ -6,6 +6,7 @@
 // ============ Participants 表 ============
 export interface ParticipantRow {
   id: number;
+  activity_id: number;  // 新增：关联到活动
   name: string;
   employee_id: string;
   department: string;
@@ -14,10 +15,11 @@ export interface ParticipantRow {
 }
 
 export interface ParticipantInsert {
+  activity_id: number;  // 新增：必填
   name: string;
-  employee_id: string;
-  department: string;
-  email: string;
+  employee_id?: string;
+  department?: string;
+  email?: string;
   created_at?: string;
 }
 
@@ -34,7 +36,7 @@ export interface ActivityRow {
   name: string;
   description: string | null;
   allow_multi_win: boolean;
-  animation_duration_ms: number;
+  // 移除 animation_duration_ms - 已移至 rounds 表
   created_at: string;
   updated_at: string;
 }
@@ -43,7 +45,7 @@ export interface ActivityInsert {
   name: string;
   description?: string | null;
   allow_multi_win?: boolean;
-  animation_duration_ms?: number;
+  // 移除 animation_duration_ms
   created_at?: string;
   updated_at?: string;
 }
@@ -52,7 +54,7 @@ export interface ActivityUpdate {
   name?: string;
   description?: string | null;
   allow_multi_win?: boolean;
-  animation_duration_ms?: number;
+  // 移除 animation_duration_ms
   updated_at?: string;
 }
 
@@ -66,6 +68,7 @@ export interface RoundRow {
   winner_count: number;
   order_index: number;
   lottery_mode: string;
+  animation_duration_ms: number;  // 新增：动画时长
   is_drawn: boolean;
   created_at: string;
 }
@@ -77,6 +80,7 @@ export interface RoundInsert {
   winner_count?: number;
   order_index?: number;
   lottery_mode?: string;
+  animation_duration_ms?: number;  // 新增：默认 60000
   is_drawn?: boolean;
   created_at?: string;
 }
@@ -87,6 +91,7 @@ export interface RoundUpdate {
   winner_count?: number;
   order_index?: number;
   lottery_mode?: string;
+  animation_duration_ms?: number;  // 新增
   is_drawn?: boolean;
 }
 
@@ -110,18 +115,8 @@ export interface WinnerUpdate {
   drawn_at?: string;
 }
 
-// ============ Activity Participants 关联表 ============
-export interface ActivityParticipantRow {
-  activity_id: number;
-  participant_id: number;
-}
-
-export interface ActivityParticipantInsert {
-  activity_id: number;
-  participant_id: number;
-}
-
 // ============ Database 类型定义 ============
+// 注意：已移除 activity_participants 关联表
 export type Database = {
   public: {
     Tables: {
@@ -129,7 +124,15 @@ export type Database = {
         Row: ParticipantRow;
         Insert: ParticipantInsert;
         Update: ParticipantUpdate;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "participants_activity_id_fkey";
+            columns: ["activity_id"];
+            isOneToOne: false;
+            referencedRelation: "activities";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       activities: {
         Row: ActivityRow;
@@ -172,27 +175,7 @@ export type Database = {
           }
         ];
       };
-      activity_participants: {
-        Row: ActivityParticipantRow;
-        Insert: ActivityParticipantInsert;
-        Update: ActivityParticipantInsert;
-        Relationships: [
-          {
-            foreignKeyName: "activity_participants_activity_id_fkey";
-            columns: ["activity_id"];
-            isOneToOne: false;
-            referencedRelation: "activities";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "activity_participants_participant_id_fkey";
-            columns: ["participant_id"];
-            isOneToOne: false;
-            referencedRelation: "participants";
-            referencedColumns: ["id"];
-          }
-        ];
-      };
+      // 已删除 activity_participants 关联表
     };
     Views: {
       [_ in never]: never;

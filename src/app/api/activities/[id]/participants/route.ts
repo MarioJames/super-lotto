@@ -1,44 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { activityService } from '@/lib/services';
+import { participantService, activityService } from '@/lib/services';
 import { LotteryError, NotFoundError } from '@/lib/types/errors';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+/**
+ * GET /api/activities/[id]/participants
+ * 获取活动的参与人员列表
+ * Requirements: 4.1
+ */
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const body = await request.json();
-    const { participantIds } = body;
+    const activityId = parseInt(id);
 
-    if (!Array.isArray(participantIds)) {
-      return NextResponse.json({ success: false, error: 'participantIds must be an array' }, { status: 400 });
-    }
+    // 验证活动存在
+    await activityService.getActivity(activityId);
 
-    await activityService.addParticipantsToActivity(parseInt(id), participantIds);
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    if (error instanceof NotFoundError) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 404 });
-    }
-    if (error instanceof LotteryError) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
-    }
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-    const { participantIds } = body;
-
-    if (!Array.isArray(participantIds)) {
-      return NextResponse.json({ success: false, error: 'participantIds must be an array' }, { status: 400 });
-    }
-
-    await activityService.removeParticipantsFromActivity(parseInt(id), participantIds);
-    return NextResponse.json({ success: true });
+    const participants = await participantService.listParticipantsForActivity(activityId);
+    return NextResponse.json({ success: true, data: participants });
   } catch (error) {
     if (error instanceof NotFoundError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 404 });

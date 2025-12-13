@@ -3,11 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, Calendar, Gift, Home } from 'lucide-react';
+import { Calendar, Gift, Home } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: '首页', icon: Home },
-  { href: '/participants', label: '参与人员', icon: Users },
   { href: '/activities', label: '抽奖活动', icon: Calendar },
 ];
 

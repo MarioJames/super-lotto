@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,26 +8,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Play, Settings, Trash2 } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Plus, Play, Settings, Trash2, Upload, Download, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Activity, Participant } from '@/lib/types';
+import type { Activity, ParticipantCSVRow } from '@/lib/types';
 
 export default function ActivitiesPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
+  const [csvParticipants, setCsvParticipants] = useState<ParticipantCSVRow[]>([]);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     allowMultiWin: false,
-    animationDurationMs: 60000,
   });
 
   useEffect(() => {
     fetchActivities();
-    fetchParticipants();
   }, []);
 
   const fetchActivities = async () => {
@@ -42,14 +42,72 @@ export default function ActivitiesPage() {
     }
   };
 
-  const fetchParticipants = async () => {
-    try {
-      const res = await fetch('/api/participants');
-      const data = await res.json();
-      if (data.success) setParticipants(data.data);
-    } catch {
-      console.error('获取参与人员失败');
+  const parseCSV = (content: string): { participants: ParticipantCSVRow[]; errors: string[] } => {
+    const lines = content.split(/\r?\n/).filter(line => line.trim());
+    if (lines.length === 0) return { participants: [], errors: ['CSV文件为空'] };
+
+    const headerLine = lines[0].toLowerCase();
+    const headers = headerLine.split(',').map(h => h.trim());
+
+    // Find column indices
+    const nameIdx = headers.findIndex(h => h === '姓名' || h === 'name');
+    const employeeIdIdx = headers.findIndex(h => h === '工号' || h === 'employeeid' || h === 'employee_id');
+    const departmentIdx = headers.findIndex(h => h === '部门' || h === 'department');
+    const emailIdx = headers.findIndex(h => h === '邮箱' || h === 'email');
+
+    if (nameIdx === -1) {
+      return { participants: [], errors: ['CSV文件缺少姓名列（姓名/name）'] };
     }
+
+    const participants: ParticipantCSVRow[] = [];
+    const errors: string[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim());
+      const name = values[nameIdx] || '';
+
+      if (!name) {
+        errors.push(`第 ${i + 1} 行：姓名不能为空，已跳过`);
+        continue;
+      }
+
+      participants.push({
+        name,
+        employeeId: employeeIdIdx >= 0 ? values[employeeIdIdx] || '' : '',
+        department: departmentIdx >= 0 ? values[departmentIdx] || '' : '',
+        email: emailIdx >= 0 ? values[emailIdx] || '' : '',
+      });
+    }
+
+    return { participants, errors };
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const { participants, errors } = parseCSV(content);
+      setCsvParticipants(participants);
+      setCsvErrors(errors);
+      if (errors.length > 0) {
+        toast.warning(`解析完成，有 ${errors.length} 条警告`);
+      } else if (participants.length > 0) {
+        toast.success(`成功解析 ${participants.length} 名参与人员`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleDownloadTemplate = () => {
+    window.open('/api/templates/participants', '_blank');
+  };
+
+  const removeParticipant = (index: number) => {
+    setCsvParticipants(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleCreate = async () => {
@@ -57,18 +115,23 @@ export default function ActivitiesPage() {
       toast.error('请输入活动名称');
       return;
     }
+    if (csvParticipants.length === 0) {
+      toast.error('请至少导入一名参与人员');
+      return;
+    }
     try {
       const res = await fetch('/api/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, participantIds: selectedParticipants }),
+        body: JSON.stringify({ ...formData, participants: csvParticipants }),
       });
       const data = await res.json();
       if (data.success) {
         toast.success('创建成功');
         setIsCreateDialogOpen(false);
-        setFormData({ name: '', description: '', allowMultiWin: false, animationDurationMs: 60000 });
-        setSelectedParticipants([]);
+        setFormData({ name: '', description: '', allowMultiWin: false });
+        setCsvParticipants([]);
+        setCsvErrors([]);
         fetchActivities();
       } else {
         toast.error(data.error || '创建失败');
@@ -94,54 +157,133 @@ export default function ActivitiesPage() {
     }
   };
 
-  const toggleParticipant = (id: number) => {
-    setSelectedParticipants(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-    );
-  };
-
-  const selectAllParticipants = () => {
-    setSelectedParticipants(participants.map(p => p.id));
+  const resetDialog = () => {
+    setFormData({ name: '', description: '', allowMultiWin: false });
+    setCsvParticipants([]);
+    setCsvErrors([]);
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">抽奖活动</h1>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) resetDialog();
+        }}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />创建活动</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>创建抽奖活动</DialogTitle></DialogHeader>
             <div className="space-y-4">
-              <div><Label>活动名称 *</Label><Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="例如：年会抽奖" /></div>
-              <div><Label>活动描述</Label><Input value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="活动说明" /></div>
-              <div className="flex items-center justify-between">
-                <div><Label>允许多次中奖</Label><p className="text-sm text-slate-500">开启后同一人可在不同轮次中奖</p></div>
-                <Switch checked={formData.allowMultiWin} onCheckedChange={v => setFormData({...formData, allowMultiWin: v})} />
-              </div>
-              <div><Label>动画时长（秒）</Label><Input type="number" value={formData.animationDurationMs / 1000} onChange={e => setFormData({...formData, animationDurationMs: Number(e.target.value) * 1000})} min={10} max={300} /></div>
               <div>
-                <div className="flex justify-between items-center mb-2">
-                  <Label>选择参与人员 ({selectedParticipants.length}/{participants.length})</Label>
-                  <Button variant="outline" size="sm" onClick={selectAllParticipants}>全选</Button>
-                </div>
-                <div className="border rounded-lg max-h-48 overflow-y-auto p-2 space-y-1">
-                  {participants.length === 0 ? (
-                    <p className="text-sm text-slate-500 text-center py-4">暂无参与人员，请先添加</p>
-                  ) : (
-                    participants.map(p => (
-                      <label key={p.id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                        <input type="checkbox" checked={selectedParticipants.includes(p.id)} onChange={() => toggleParticipant(p.id)} className="rounded" />
-                        <span>{p.name}</span>
-                        <span className="text-slate-400 text-sm">({p.department})</span>
-                      </label>
-                    ))
-                  )}
-                </div>
+                <Label>活动名称 *</Label>
+                <Input
+                  value={formData.name}
+                  onChange={e => setFormData({...formData, name: e.target.value})}
+                  placeholder="例如：年会抽奖"
+                />
               </div>
-              <Button onClick={handleCreate} className="w-full">创建活动</Button>
+              <div>
+                <Label>活动描述</Label>
+                <Input
+                  value={formData.description}
+                  onChange={e => setFormData({...formData, description: e.target.value})}
+                  placeholder="活动说明"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>允许多次中奖</Label>
+                  <p className="text-sm text-slate-500">开启后同一人可在不同轮次中奖</p>
+                </div>
+                <Switch
+                  checked={formData.allowMultiWin}
+                  onCheckedChange={v => setFormData({...formData, allowMultiWin: v})}
+                />
+              </div>
+
+              {/* CSV Import Section */}
+              <div className="border-t pt-4">
+                <div className="flex justify-between items-center mb-3">
+                  <Label>导入参与人员 *</Label>
+                  <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+                    <Download className="h-4 w-4 mr-2" />下载模板
+                  </Button>
+                </div>
+
+                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <Upload className="h-8 w-8 mx-auto text-slate-400 mb-2" />
+                  <p className="text-sm text-slate-600 mb-2">点击或拖拽 CSV 文件到此处</p>
+                  <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                    选择文件
+                  </Button>
+                </div>
+
+                {csvErrors.length > 0 && (
+                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm font-medium text-yellow-800 mb-1">解析警告：</p>
+                    <ul className="text-sm text-yellow-700 list-disc list-inside">
+                      {csvErrors.slice(0, 5).map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                      {csvErrors.length > 5 && <li>...还有 {csvErrors.length - 5} 条警告</li>}
+                    </ul>
+                  </div>
+                )}
+
+                {csvParticipants.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-sm font-medium mb-2">
+                      已导入 {csvParticipants.length} 名参与人员：
+                    </p>
+                    <div className="border rounded-lg max-h-48 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>姓名</TableHead>
+                            <TableHead>工号</TableHead>
+                            <TableHead>部门</TableHead>
+                            <TableHead>邮箱</TableHead>
+                            <TableHead className="w-12"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {csvParticipants.map((p, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-medium">{p.name}</TableCell>
+                              <TableCell>{p.employeeId || '-'}</TableCell>
+                              <TableCell>{p.department || '-'}</TableCell>
+                              <TableCell>{p.email || '-'}</TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => removeParticipant(idx)}
+                                >
+                                  <X className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Button onClick={handleCreate} className="w-full" disabled={csvParticipants.length === 0}>
+                创建活动
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -167,7 +309,6 @@ export default function ActivitiesPage() {
               <CardContent>
                 <div className="space-y-2 text-sm text-slate-600 mb-4">
                   <p>多次中奖：{activity.allowMultiWin ? '允许' : '不允许'}</p>
-                  <p>动画时长：{activity.animationDurationMs / 1000} 秒</p>
                 </div>
                 <div className="flex gap-2">
                   <Link href={`/activities/${activity.id}`} className="flex-1">

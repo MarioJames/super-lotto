@@ -3,6 +3,10 @@ import type { Participant, DrawResult, WinnerWithDetails } from '../types';
 import { NotFoundError, InsufficientParticipantsError, AlreadyDrawnError } from '../types/errors';
 
 export class LotteryService {
+  /**
+   * 执行抽奖
+   * Requirements: 6.3 - 使用轮次配置的动画时长
+   */
   async executeDraw(roundId: number): Promise<DrawResult> {
     const round = await roundRepository.findById(roundId);
     if (!round) {
@@ -18,7 +22,7 @@ export class LotteryService {
       throw new NotFoundError('Activity', round.activityId);
     }
 
-    // 获取可用参与人员
+    // 获取可用参与人员（从活动的参与人员中筛选）
     const availableParticipants = await participantRepository.findAvailableForRound(
       round.activityId,
       activity.allowMultiWin
@@ -37,6 +41,7 @@ export class LotteryService {
     // 标记轮次已抽奖
     await roundRepository.markAsDrawn(roundId);
 
+    // 返回结果，包含轮次的 animationDurationMs
     return {
       round: { ...round, isDrawn: true },
       winners,
@@ -53,7 +58,9 @@ export class LotteryService {
     return await winnerRepository.findByRoundId(roundId);
   }
 
-
+  /**
+   * 获取活动中可参与抽奖的人员
+   */
   async getAvailableParticipants(activityId: number): Promise<Participant[]> {
     const activity = await activityRepository.findById(activityId);
     if (!activity) {
@@ -68,6 +75,18 @@ export class LotteryService {
       throw new NotFoundError('Activity', activityId);
     }
     return await winnerRepository.findByActivityId(activityId);
+  }
+
+  /**
+   * 获取轮次的动画时长
+   * Requirements: 6.3
+   */
+  async getAnimationDuration(roundId: number): Promise<number> {
+    const round = await roundRepository.findById(roundId);
+    if (!round) {
+      throw new NotFoundError('Round', roundId);
+    }
+    return round.animationDurationMs;
   }
 
   // Fisher-Yates 洗牌算法随机选择

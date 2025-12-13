@@ -130,7 +130,7 @@ export default function LotteryPage({ params }: { params: Promise<{ id: string }
     const props = {
       participants: availableParticipants,
       winnerCount: currentRound.winnerCount,
-      durationMs: activity.animationDurationMs,
+      durationMs: currentRound.animationDurationMs,
       onComplete: handleDrawComplete,
       isRunning: isDrawing,
     };

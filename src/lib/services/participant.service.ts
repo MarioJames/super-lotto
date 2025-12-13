@@ -1,108 +1,151 @@
 import { parse } from 'csv-parse/sync';
 import { participantRepository } from '../repositories';
-import type { Participant, CreateParticipantDTO, UpdateParticipantDTO, ParticipantCSVRow, ImportResult } from '../types';
-import { ValidationError, NotFoundError } from '../types/errors';
+import type { Participant, ParticipantCSVRow, ImportResult } from '../types';
+import { ValidationError, NotFoundError, ForbiddenError } from '../types/errors';
 
-export class ParticipantService {
-  async listParticipants(): Promise<Participant[]> {
-    return participantRepository.findAll();
+/**
+ * CSV 列名映射 - 支持中英文列名
+ */
+function mapCSVRecord(record: Record<string, string>): ParticipantCSVRow {
+  return {
+    name: record.name || record['姓名'] || '',
+    employeeId: record.employeeId || record.employee_id || record['工号'] || '',
+    department: record.department || record['部门'] || '',
+    email: record.email || record['邮箱'] || '',
+  };
+}
+
+/**
+ * 将参与人员数据序列化为 CSV 格式
+ */
+export function serializeToCSV(participants: ParticipantCSVRow[]): string {
+  const header = '姓名,工号,部门,邮箱';
+  const rows = participants.map(p =>
+    `${p.name},${p.employeeId || ''},${p.department || ''},${p.email || ''}`
+  );
+  return [header, ...rows].join('\n');
+}
+
+/**
+ * 解析 CSV 内容为参与人员数据
+ */
+export function parseCSVContent(csvContent: string): { records: ParticipantCSVRow[]; errors: Array<{ row: number; message: string }> } {
+  const errors: Array<{ row: number; message: string }> = [];
+  let rawRecords: Record<string, string>[];
+
+  try {
+    rawRecords = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+  } catch {
+    return {
+      records: [],
+      errors: [{ row: 0, message: '无效的CSV格式' }],
+    };
   }
 
-  async getParticipant(id: number): Promise<Participant> {
-    const participant = await participantRepository.findById(id);
+  const records: ParticipantCSVRow[] = [];
+
+  for (let i = 0; i < rawRecords.length; i++) {
+    const mapped = mapCSVRecord(rawRecords[i]);
+
+    // 仅姓名必填 - Requirements 1.4, 1.5
+    if (!mapped.name || mapped.name.trim() === '') {
+      errors.push({ row: i + 1, message: `第${i + 1}行：姓名不能为空` });
+      continue;
+    }
+
+    records.push({
+      name: mapped.name.trim(),
+      employeeId: mapped.employeeId?.trim() || '',
+      department: mapped.department?.trim() || '',
+      email: mapped.email?.trim() || '',
+    });
+  }
+
+  return { records, errors };
+}
+
+export class ParticipantService {
+  /**
+   * 获取活动的参与人员列表
+   */
+  async listParticipantsForActivity(activityId: number): Promise<Participant[]> {
+    return participantRepository.findByActivityId(activityId);
+  }
+
+  /**
+   * 获取活动中的单个参与人员
+   */
+  async getParticipantFromActivity(activityId: number, participantId: number): Promise<Participant> {
+    const participant = await participantRepository.findById(activityId, participantId);
     if (!participant) {
-      throw new NotFoundError('Participant', id);
+      throw new NotFoundError('Participant', participantId);
     }
     return participant;
   }
 
-  async addParticipant(data: CreateParticipantDTO): Promise<Participant> {
-    this.validateParticipantData(data);
+  /**
+   * 为活动导入参与人员（从 CSV 内容）
+   * Requirements: 1.3, 1.4, 1.5, 4.2
+   */
+  async importParticipantsForActivity(activityId: number, csvContent: string): Promise<ImportResult> {
+    // 解析 CSV 内容
+    const { records, errors } = parseCSVContent(csvContent);
 
-    // 检查工号是否已存在
-    const existing = await participantRepository.findByEmployeeId(data.employeeId);
-    if (existing) {
-      throw new ValidationError('Employee ID already exists', { employeeId: data.employeeId });
-    }
-
-    return participantRepository.create(data);
-  }
-
-  async updateParticipant(id: number, data: UpdateParticipantDTO): Promise<Participant> {
-    const existing = await participantRepository.findById(id);
-    if (!existing) {
-      throw new NotFoundError('Participant', id);
-    }
-
-    // 如果更新工号，检查是否与其他人重复
-    if (data.employeeId && data.employeeId !== existing.employeeId) {
-      const duplicate = await participantRepository.findByEmployeeId(data.employeeId);
-      if (duplicate) {
-        throw new ValidationError('Employee ID already exists', { employeeId: data.employeeId });
-      }
-    }
-
-    const updated = await participantRepository.update(id, data);
-    if (!updated) {
-      throw new NotFoundError('Participant', id);
-    }
-    return updated;
-  }
-
-
-  async deleteParticipant(id: number): Promise<boolean> {
-    const existing = await participantRepository.findById(id);
-    if (!existing) {
-      throw new NotFoundError('Participant', id);
-    }
-    return participantRepository.delete(id);
-  }
-
-  async importParticipantsFromCSV(csvContent: string): Promise<ImportResult> {
-    let records: ParticipantCSVRow[];
-
-    try {
-      records = parse(csvContent, {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true,
-      });
-    } catch {
+    if (errors.length > 0 && errors[0].message === '无效的CSV格式') {
       return {
         success: 0,
         failed: 0,
-        errors: [{ row: 0, message: 'Invalid CSV format' }],
+        errors,
       };
     }
 
-    // 映射列名（支持中英文）
-    const mappedRecords: ParticipantCSVRow[] = (records as unknown as Record<string, string>[]).map((record) => ({
-      name: record.name || record['姓名'] || '',
-      employeeId: record.employeeId || record.employee_id || record['工号'] || '',
-      department: record.department || record['部门'] || '',
-      email: record.email || record['邮箱'] || '',
-    }));
+    if (records.length === 0 && errors.length === 0) {
+      return {
+        success: 0,
+        failed: 0,
+        errors: [{ row: 0, message: 'CSV文件为空' }],
+      };
+    }
 
-    return participantRepository.importFromCSV(mappedRecords);
+    // 导入有效记录到数据库
+    const importResult = await participantRepository.importForActivity(activityId, records);
+
+    // 合并解析错误和导入错误
+    return {
+      success: importResult.success,
+      failed: importResult.failed + errors.length,
+      errors: [...errors, ...importResult.errors],
+    };
   }
 
-  private validateParticipantData(data: CreateParticipantDTO): void {
-    if (!data.name || data.name.trim() === '') {
-      throw new ValidationError('Name is required');
+  /**
+   * 从活动中删除参与人员
+   * Requirements: 4.3
+   */
+  async deleteParticipantFromActivity(activityId: number, participantId: number): Promise<boolean> {
+    // 先检查参与人员是否存在于该活动
+    const participant = await participantRepository.findById(activityId, participantId);
+    if (!participant) {
+      throw new NotFoundError('Participant', participantId);
     }
-    if (!data.employeeId || data.employeeId.trim() === '') {
-      throw new ValidationError('Employee ID is required');
+
+    // 确保参与人员属于该活动
+    if (participant.activityId !== activityId) {
+      throw new ForbiddenError('参与人员不属于该活动');
     }
-    if (!data.department || data.department.trim() === '') {
-      throw new ValidationError('Department is required');
-    }
-    if (!data.email || data.email.trim() === '') {
-      throw new ValidationError('Email is required');
-    }
-    // 简单的邮箱格式验证
-    if (!data.email.includes('@')) {
-      throw new ValidationError('Invalid email format');
-    }
+
+    return participantRepository.deleteFromActivity(activityId, participantId);
+  }
+
+  /**
+   * 获取活动的参与人员数量
+   */
+  async countParticipantsForActivity(activityId: number): Promise<number> {
+    return participantRepository.countByActivityId(activityId);
   }
 }
 

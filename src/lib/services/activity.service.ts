@@ -1,6 +1,5 @@
-import { activityRepository } from '../repositories';
+import { activityRepository, participantRepository } from '../repositories';
 import type { Activity, ActivityWithRounds, CreateActivityDTO, UpdateActivityDTO } from '../types';
-import { MIN_ANIMATION_DURATION_MS, MAX_ANIMATION_DURATION_MS } from '../types';
 import { ValidationError, NotFoundError } from '../types/errors';
 
 export class ActivityService {
@@ -16,8 +15,22 @@ export class ActivityService {
     return activity;
   }
 
+  /**
+   * 创建活动并直接创建参与人员
+   * Requirements: 1.6, 1.7
+   */
   async createActivity(data: CreateActivityDTO): Promise<Activity> {
     this.validateActivityData(data);
+
+    // 验证参与人员数量 - Requirements 1.7
+    const validParticipants = (data.participants || []).filter(
+      p => p.name && p.name.trim() !== ''
+    );
+
+    if (validParticipants.length === 0) {
+      throw new ValidationError('请至少导入一名参与人员');
+    }
+
     return activityRepository.create(data);
   }
 
@@ -27,8 +40,8 @@ export class ActivityService {
       throw new NotFoundError('Activity', id);
     }
 
-    if (data.animationDurationMs !== undefined) {
-      this.validateAnimationDuration(data.animationDurationMs);
+    if (data.name !== undefined) {
+      this.validateActivityName(data.name);
     }
 
     const updated = await activityRepository.update(id, data);
@@ -46,37 +59,24 @@ export class ActivityService {
     return activityRepository.delete(id);
   }
 
-  async addParticipantsToActivity(activityId: number, participantIds: number[]): Promise<void> {
+  /**
+   * 获取活动的参与人员数量
+   */
+  async getParticipantCount(activityId: number): Promise<number> {
     const existing = await activityRepository.findById(activityId);
     if (!existing) {
       throw new NotFoundError('Activity', activityId);
     }
-    await activityRepository.addParticipants(activityId, participantIds);
-  }
-
-  async removeParticipantsFromActivity(activityId: number, participantIds: number[]): Promise<void> {
-    const existing = await activityRepository.findById(activityId);
-    if (!existing) {
-      throw new NotFoundError('Activity', activityId);
-    }
-    await activityRepository.removeParticipants(activityId, participantIds);
+    return participantRepository.countByActivityId(activityId);
   }
 
   private validateActivityData(data: CreateActivityDTO): void {
-    if (!data.name || data.name.trim() === '') {
-      throw new ValidationError('Activity name is required');
-    }
-    if (data.animationDurationMs !== undefined) {
-      this.validateAnimationDuration(data.animationDurationMs);
-    }
+    this.validateActivityName(data.name);
   }
 
-  private validateAnimationDuration(duration: number): void {
-    if (duration < MIN_ANIMATION_DURATION_MS || duration > MAX_ANIMATION_DURATION_MS) {
-      throw new ValidationError(
-        `Animation duration must be between ${MIN_ANIMATION_DURATION_MS}ms and ${MAX_ANIMATION_DURATION_MS}ms`,
-        { min: MIN_ANIMATION_DURATION_MS, max: MAX_ANIMATION_DURATION_MS, provided: duration }
-      );
+  private validateActivityName(name: string): void {
+    if (!name || name.trim() === '') {
+      throw new ValidationError('活动名称不能为空');
     }
   }
 }

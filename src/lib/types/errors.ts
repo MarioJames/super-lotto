@@ -126,3 +126,11 @@ export class AlreadyDrawnError extends LotteryError {
     this.name = 'AlreadyDrawnError';
   }
 }
+
+// 禁止访问错误
+export class ForbiddenError extends LotteryError {
+  constructor(message: string) {
+    super(message, 'FORBIDDEN', {});
+    this.name = 'ForbiddenError';
+  }
+}

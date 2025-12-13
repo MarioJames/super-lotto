@@ -15,10 +15,11 @@ function rowToWinner(row: WinnerRow): Winner {
 function rowToParticipant(row: ParticipantRow): Participant {
   return {
     id: row.id,
+    activityId: row.activity_id,
     name: row.name,
-    employeeId: row.employee_id,
-    department: row.department,
-    email: row.email,
+    employeeId: row.employee_id || '',
+    department: row.department || '',
+    email: row.email || '',
     createdAt: new Date(row.created_at),
   };
 }
@@ -32,6 +33,7 @@ function rowToRound(row: RoundRow): Round {
     winnerCount: row.winner_count,
     orderIndex: row.order_index,
     lotteryMode: row.lottery_mode as LotteryMode,
+    animationDurationMs: row.animation_duration_ms,
     isDrawn: row.is_drawn,
     createdAt: new Date(row.created_at),
   };

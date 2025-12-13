@@ -1,26 +1,31 @@
 import { getSupabaseClient } from '../db/supabase';
-import type { ParticipantRow, ParticipantInsert, ParticipantUpdate, ActivityParticipantRow, RoundRow, WinnerRow } from '../db/types';
-import type { Participant, CreateParticipantDTO, UpdateParticipantDTO, ParticipantCSVRow, ImportResult } from '../types';
+import type { ParticipantRow, ParticipantInsert, ParticipantUpdate, RoundRow, WinnerRow } from '../db/types';
+import type { Participant, UpdateParticipantDTO, ParticipantCSVRow, ImportResult } from '../types';
 import { parseSupabaseError, DatabaseError } from '../types/errors';
 
 function rowToParticipant(row: ParticipantRow): Participant {
   return {
     id: row.id,
+    activityId: row.activity_id,
     name: row.name,
-    employeeId: row.employee_id,
-    department: row.department,
-    email: row.email,
+    employeeId: row.employee_id || '',
+    department: row.department || '',
+    email: row.email || '',
     createdAt: new Date(row.created_at),
   };
 }
 
 export class ParticipantRepository {
-  async findById(id: number): Promise<Participant | null> {
+  /**
+   * 根据ID查找参与人员（需要指定活动ID以确保隔离）
+   */
+  async findById(activityId: number, id: number): Promise<Participant | null> {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('participants')
       .select('*')
       .eq('id', id)
+      .eq('activity_id', activityId)
       .single();
 
     if (error) {
@@ -33,46 +38,58 @@ export class ParticipantRepository {
     return data ? rowToParticipant(data as ParticipantRow) : null;
   }
 
-  async findAll(): Promise<Participant[]> {
+  /**
+   * 查找活动的所有参与人员
+   */
+  async findByActivityId(activityId: number): Promise<Participant[]> {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('participants')
       .select('*')
+      .eq('activity_id', activityId)
       .order('id');
 
     if (error) {
-      throw parseSupabaseError(error, 'findAll');
+      throw parseSupabaseError(error, 'findByActivityId');
     }
 
     return ((data || []) as ParticipantRow[]).map(rowToParticipant);
   }
 
-  async findByEmployeeId(employeeId: string): Promise<Participant | null> {
+  /**
+   * 在活动内根据工号查找参与人员
+   */
+  async findByEmployeeIdInActivity(activityId: number, employeeId: string): Promise<Participant | null> {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('participants')
       .select('*')
+      .eq('activity_id', activityId)
       .eq('employee_id', employeeId)
       .single();
-
 
     if (error) {
       if (error.code === 'PGRST116') {
         return null;
       }
-      throw parseSupabaseError(error, 'findByEmployeeId');
+      throw parseSupabaseError(error, 'findByEmployeeIdInActivity');
     }
 
     return data ? rowToParticipant(data as ParticipantRow) : null;
   }
 
-  async create(data: CreateParticipantDTO): Promise<Participant> {
+
+  /**
+   * 为活动创建单个参与人员
+   */
+  async createForActivity(activityId: number, data: ParticipantCSVRow): Promise<Participant> {
     const supabase = getSupabaseClient();
     const insertData: ParticipantInsert = {
+      activity_id: activityId,
       name: data.name,
-      employee_id: data.employeeId,
-      department: data.department,
-      email: data.email,
+      employee_id: data.employeeId || '',
+      department: data.department || '',
+      email: data.email || '',
     };
 
     const { data: created, error } = await supabase
@@ -82,20 +99,73 @@ export class ParticipantRepository {
       .single();
 
     if (error) {
-      throw parseSupabaseError(error, 'create');
+      throw parseSupabaseError(error, 'createForActivity');
     }
 
     if (!created) {
-      throw new DatabaseError('创建参与人员失败：未返回数据', 'create');
+      throw new DatabaseError('创建参与人员失败：未返回数据', 'createForActivity');
     }
 
     return rowToParticipant(created as ParticipantRow);
   }
 
-  async update(id: number, data: UpdateParticipantDTO): Promise<Participant | null> {
+  /**
+   * 为活动批量导入参与人员（从CSV数据）
+   */
+  async importForActivity(activityId: number, data: ParticipantCSVRow[]): Promise<ImportResult> {
+    const supabase = getSupabaseClient();
+    const result: ImportResult = { success: 0, failed: 0, errors: [] };
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      try {
+        // 仅姓名必填
+        if (!row.name || row.name.trim() === '') {
+          result.failed++;
+          result.errors.push({ row: i + 1, message: '姓名不能为空' });
+          continue;
+        }
+
+        const insertData: ParticipantInsert = {
+          activity_id: activityId,
+          name: row.name.trim(),
+          employee_id: row.employeeId?.trim() || '',
+          department: row.department?.trim() || '',
+          email: row.email?.trim() || '',
+        };
+
+        const { error } = await supabase
+          .from('participants')
+          .insert(insertData as never);
+
+        if (error) {
+          result.failed++;
+          result.errors.push({
+            row: i + 1,
+            message: error.message || '未知错误'
+          });
+        } else {
+          result.success++;
+        }
+      } catch (error) {
+        result.failed++;
+        result.errors.push({
+          row: i + 1,
+          message: error instanceof Error ? error.message : '未知错误'
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 更新活动中的参与人员
+   */
+  async updateInActivity(activityId: number, id: number, data: UpdateParticipantDTO): Promise<Participant | null> {
     const supabase = getSupabaseClient();
 
-    const existing = await this.findById(id);
+    const existing = await this.findById(activityId, id);
     if (!existing) return null;
 
     const updateData: ParticipantUpdate = {};
@@ -112,109 +182,42 @@ export class ParticipantRepository {
       .from('participants')
       .update(updateData as never)
       .eq('id', id)
+      .eq('activity_id', activityId)
       .select()
       .single();
 
     if (error) {
-      throw parseSupabaseError(error, 'update');
+      throw parseSupabaseError(error, 'updateInActivity');
     }
 
     return updated ? rowToParticipant(updated as ParticipantRow) : null;
   }
 
-  async delete(id: number): Promise<boolean> {
+  /**
+   * 从活动中删除参与人员
+   */
+  async deleteFromActivity(activityId: number, id: number): Promise<boolean> {
     const supabase = getSupabaseClient();
 
-    const existing = await this.findById(id);
+    const existing = await this.findById(activityId, id);
     if (!existing) return false;
 
     const { error } = await supabase
       .from('participants')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('activity_id', activityId);
 
     if (error) {
-      throw parseSupabaseError(error, 'delete');
+      throw parseSupabaseError(error, 'deleteFromActivity');
     }
 
     return true;
   }
 
-  async findByActivityId(activityId: number): Promise<Participant[]> {
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .from('activity_participants')
-      .select('participant_id')
-      .eq('activity_id', activityId);
-
-    if (error) {
-      throw parseSupabaseError(error, 'findByActivityId');
-    }
-
-    if (!data || data.length === 0) {
-      return [];
-    }
-
-    const participantIds = (data as Pick<ActivityParticipantRow, 'participant_id'>[]).map(row => row.participant_id);
-    const { data: participants, error: participantsError } = await supabase
-      .from('participants')
-      .select('*')
-      .in('id', participantIds)
-      .order('id');
-
-    if (participantsError) {
-      throw parseSupabaseError(participantsError, 'findByActivityId');
-    }
-
-    return ((participants || []) as ParticipantRow[]).map(rowToParticipant);
-  }
-
-
-  async importFromCSV(data: ParticipantCSVRow[]): Promise<ImportResult> {
-    const supabase = getSupabaseClient();
-    const result: ImportResult = { success: 0, failed: 0, errors: [] };
-
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      try {
-        if (!row.name || !row.employeeId || !row.department || !row.email) {
-          result.failed++;
-          result.errors.push({ row: i + 1, message: 'Missing required fields' });
-          continue;
-        }
-
-        const insertData: ParticipantInsert = {
-          name: row.name,
-          employee_id: row.employeeId,
-          department: row.department,
-          email: row.email,
-        };
-
-        const { error } = await supabase
-          .from('participants')
-          .insert(insertData as never);
-
-        if (error) {
-          result.failed++;
-          result.errors.push({
-            row: i + 1,
-            message: error.message || 'Unknown error'
-          });
-        } else {
-          result.success++;
-        }
-      } catch (error) {
-        result.failed++;
-        result.errors.push({
-          row: i + 1,
-          message: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    }
-
-    return result;
-  }
-
+  /**
+   * 查找活动中可参与抽奖的人员（排除已中奖者，除非允许多次中奖）
+   */
   async findAvailableForRound(activityId: number, allowMultiWin: boolean): Promise<Participant[]> {
     const supabase = getSupabaseClient();
 
@@ -222,23 +225,15 @@ export class ParticipantRepository {
       return this.findByActivityId(activityId);
     }
 
-    // Get participants in the activity
-    const { data: activityParticipants, error: apError } = await supabase
-      .from('activity_participants')
-      .select('participant_id')
-      .eq('activity_id', activityId);
-
-    if (apError) {
-      throw parseSupabaseError(apError, 'findAvailableForRound');
-    }
-
-    if (!activityParticipants || activityParticipants.length === 0) {
+    // 获取活动的所有参与人员
+    const participants = await this.findByActivityId(activityId);
+    if (participants.length === 0) {
       return [];
     }
 
-    const participantIds = (activityParticipants as Pick<ActivityParticipantRow, 'participant_id'>[]).map(row => row.participant_id);
+    const participantIds = participants.map(p => p.id);
 
-    // Get winners in this activity (through rounds)
+    // 获取该活动的所有轮次
     const { data: rounds, error: roundsError } = await supabase
       .from('rounds')
       .select('id')
@@ -263,25 +258,25 @@ export class ParticipantRepository {
       winnerParticipantIds = ((winners || []) as Pick<WinnerRow, 'participant_id'>[]).map(w => w.participant_id);
     }
 
-    // Filter out winners
-    const availableIds = participantIds.filter(id => !winnerParticipantIds.includes(id));
+    // 过滤掉已中奖者
+    return participants.filter(p => !winnerParticipantIds.includes(p.id));
+  }
 
-    if (availableIds.length === 0) {
-      return [];
-    }
-
-    // Get participant details
-    const { data: participants, error: participantsError } = await supabase
+  /**
+   * 获取活动的参与人员数量
+   */
+  async countByActivityId(activityId: number): Promise<number> {
+    const supabase = getSupabaseClient();
+    const { count, error } = await supabase
       .from('participants')
-      .select('*')
-      .in('id', availableIds)
-      .order('id');
+      .select('*', { count: 'exact', head: true })
+      .eq('activity_id', activityId);
 
-    if (participantsError) {
-      throw parseSupabaseError(participantsError, 'findAvailableForRound');
+    if (error) {
+      throw parseSupabaseError(error, 'countByActivityId');
     }
 
-    return ((participants || []) as ParticipantRow[]).map(rowToParticipant);
+    return count || 0;
   }
 }
 
