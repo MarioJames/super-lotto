@@ -98,16 +98,16 @@
 - [ ] 6. 检查点 - 确保所有测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
-- [ ] 7. 清理和收尾
-  - [ ] 7.1 移除 SQLite 依赖
+- [x] 7. 清理和收尾
+  - [x] 7.1 移除 SQLite 依赖
     - 从 package.json 中移除 `better-sqlite3` 和 `@types/better-sqlite3`
     - 删除 `src/lib/db/index.ts` 和 `src/lib/db/schema.ts` 文件
     - _需求: 7.1, 7.2_
-  - [ ] 7.2 更新导入引用
+  - [x] 7.2 更新导入引用
     - 更新 `src/lib/repositories/index.ts` 中的导出
     - 确保所有 Repository 使用新的 Supabase 客户端
     - _需求: 7.3_
-  - [ ] 7.3 创建环境变量示例文件
+  - [x] 7.3 创建环境变量示例文件
     - 创建或更新 `.env.example` 文件，添加 `SUPABASE_KEY` 配置说明
     - _需求: 1.1_
 
