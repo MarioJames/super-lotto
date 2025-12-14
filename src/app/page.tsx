@@ -1,191 +1,152 @@
 'use client';
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowRight, Calendar, Gift, Play, Sparkles, Users } from 'lucide-react';
-import Link from 'next/link';
-import { DemoLotteryModal } from '@/components/demo/DemoLotteryModal';
+/**
+ * Main Lottery Agent Page
+ * Wraps the app with LotteryProvider and renders ChatInterface
+ *
+ * Requirements: 1.1, 7.4
+ */
 
-export default function HomePage() {
-  const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
+import { LotteryProvider, useLottery } from '@/contexts/LotteryContext';
+import { ChatInterface } from '@/components/chat';
+import { useCallback, useMemo } from 'react';
+import { DEFAULT_CHAT_BADGE } from '@/constants/ai';
+
+/**
+ * LotteryChat - Inner component that uses lottery context and chat
+ */
+function LotteryChat() {
+  const lottery = useLottery();
+
+  // Create transport with body containing current lottery state
+  const transport = useMemo(() => {
+    return new DefaultChatTransport({
+      api: '/api/chat',
+      body: {
+        participants: lottery.participants,
+        rounds: lottery.rounds,
+        winners: lottery.winners,
+        currentRoundIndex: lottery.currentRoundIndex,
+      },
+    });
+  }, [lottery.participants, lottery.rounds, lottery.winners, lottery.currentRoundIndex]);
+
+  const { messages, status, sendMessage } = useChat({
+    transport,
+  });
+
+  // Convert status to isLoading boolean for ChatInterface
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  const handleSendMessage = useCallback(
+    (content: string) => {
+      sendMessage({ text: content });
+    },
+    [sendMessage]
+  );
+
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload-csv', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || '文件上传失败');
+      }
+
+      // Store participants in context
+      lottery.setParticipants(result.participants);
+
+      // Send message to AI about the uploaded participants
+      sendMessage({
+        text: `我已上传参与人员名单，共 ${result.participants.length} 人。请帮我确认参与人员信息。`,
+      });
+    },
+    [sendMessage, lottery]
+  );
 
   return (
-    <div className="space-y-8">
-      <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-background via-background to-muted p-6 md:p-10">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 -left-24 h-80 w-80 rounded-full bg-purple-500/10 blur-3xl" />
+    <ChatInterface
+      messages={messages}
+      isLoading={isLoading}
+      onSendMessage={handleSendMessage}
+      onFileUpload={handleFileUpload}
+    />
+  );
+}
 
-        <div className="relative grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
-              {['多模式', '可配置', '开箱即用'].map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center rounded-full border bg-background/70 px-3 py-1 text-xs text-muted-foreground backdrop-blur"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
 
-            <div className="space-y-3">
-              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-                让抽奖更好玩，也更好用
-              </h1>
-              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground md:text-base">
-                支持多种创意抽奖模式与灵活活动配置，适用于年会、团建、发布会等各类场景。
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg" className="sm:w-auto">
-                <Link href="/activities">
-                  开始创建活动 <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-              <Button asChild size="lg" variant="outline" className="sm:w-auto">
-                <Link href="/participants">先导入参与人员</Link>
-              </Button>
-              <Button
-                size="lg"
-                variant="secondary"
-                className="sm:w-auto bg-gradient-to-r from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 border-purple-500/30"
-                onClick={() => setIsDemoModalOpen(true)}
-              >
-                <Play className="h-4 w-4" />
-                体验演示
-              </Button>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              内置模式：双色球、刮刮乐、祖玛、赛马、转盘、老虎机
-            </p>
-          </div>
-
-          <Card className="h-fit bg-background/60 backdrop-blur">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-muted">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                </div>
-                <div className="space-y-1">
-                  <CardTitle>快速上手</CardTitle>
-                  <CardDescription>三步完成一次完整抽奖</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <ol className="space-y-3 text-sm">
-                {[
-                  { title: '导入参与人员', desc: 'CSV 批量导入或手动添加' },
-                  { title: '创建抽奖活动', desc: '配置轮次、奖品与抽奖模式' },
-                  { title: '开始抽奖', desc: '选择模式，展示结果与动画' },
-                ].map((item, index) => (
-                  <li key={item.title} className="flex gap-3">
-                    <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                      {index + 1}
-                    </div>
-                    <div className="space-y-0.5">
-                      <div className="font-medium">{item.title}</div>
-                      <div className="text-xs text-muted-foreground">{item.desc}</div>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </CardContent>
-          </Card>
+/**
+ * Home - Main page component
+ */
+export default function Home() {
+  return (
+    <LotteryProvider>
+      <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+        {/* Background */}
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-24 left-1/2 h-[520px] w-[960px] -translate-x-1/2 rounded-full bg-gradient-to-r from-cyan-500/25 via-indigo-500/20 to-fuchsia-500/25 blur-3xl" />
+          <div className="absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgba(56,189,248,0.18),transparent_60%),radial-gradient(40%_30%_at_80%_20%,rgba(99,102,241,0.16),transparent_60%)]" />
+          <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:48px_48px] [-webkit-mask-image:radial-gradient(circle_at_center,black,transparent_70%)] [mask-image:radial-gradient(circle_at_center,black,transparent_70%)]" />
         </div>
-      </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Link href="/participants">
-          <Card className="group cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg">
-            <CardHeader>
+        {/* Header */}
+        <header className="relative border-b border-white/10 bg-slate-950/60 backdrop-blur">
+          <div className="mx-auto max-w-5xl px-4 py-4">
+            <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10">
-                  <Users className="h-6 w-6 text-blue-600" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/30 via-indigo-500/30 to-fuchsia-500/30 ring-1 ring-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_12px_40px_rgba(56,189,248,0.18)]">
+                  <svg
+                    className="h-6 w-6 text-cyan-100"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"
+                    />
+                  </svg>
                 </div>
                 <div>
-                  <CardTitle>参与人员管理</CardTitle>
-                  <CardDescription>导入和管理抽奖参与人员</CardDescription>
+                  <h1 className="text-xl font-semibold leading-none">
+                    <span className="bg-gradient-to-r from-cyan-200 via-indigo-200 to-fuchsia-200 bg-clip-text text-transparent">
+                      抽奖助手
+                    </span>
+                  </h1>
+                  <p className="mt-1 text-sm text-slate-300">智能抽奖系统</p>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">支持 CSV 批量导入与搜索筛选</p>
-                <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/activities">
-          <Card className="group cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-500/10">
-                  <Calendar className="h-6 w-6 text-green-600" />
-                </div>
-                <div>
-                  <CardTitle>抽奖活动</CardTitle>
-                  <CardDescription>创建和管理抽奖活动</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">灵活配置轮次、奖品与动画时长</p>
-                <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Card className="relative overflow-hidden">
-          <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-yellow-500/10 blur-3xl" />
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-yellow-500/10">
-                <Gift className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div>
-                <CardTitle>抽奖模式</CardTitle>
-                <CardDescription>多种创意抽奖方式</CardDescription>
+              <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 sm:flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.65)]" />
+                <span>{DEFAULT_CHAT_BADGE}</span>
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {['双色球', '刮刮乐', '祖玛', '赛马', '转盘', '老虎机'].map((mode) => (
-                <span
-                  key={mode}
-                  className="rounded-full border bg-background px-3 py-1 text-xs text-muted-foreground"
-                >
-                  {mode}
-                </span>
-              ))}
+          </div>
+        </header>
+
+        {/* Main content */}
+        <main className="relative flex-1 overflow-hidden">
+          <div className="mx-auto h-full max-w-5xl px-4 py-6">
+            <div className="h-full rounded-2xl bg-gradient-to-r from-cyan-500/35 via-indigo-500/35 to-fuchsia-500/35 p-[1px] shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_30px_80px_rgba(0,0,0,0.55),0_0_60px_rgba(56,189,248,0.12)]">
+              <div className="h-full overflow-hidden rounded-2xl bg-white">
+                <LotteryChat />
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </main>
       </div>
-
-      <Card className="bg-muted/20">
-        <CardHeader>
-          <CardTitle>小贴士</CardTitle>
-          <CardDescription>更顺畅地组织一场抽奖</CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          建议先完成参与人员导入与清洗（部门/工号），再创建活动并在每轮抽奖前确认奖品与人数设置。
-        </CardContent>
-      </Card>
-
-      {/* Demo Mode Modal */}
-      <DemoLotteryModal
-        isOpen={isDemoModalOpen}
-        onClose={() => setIsDemoModalOpen(false)}
-      />
-    </div>
+    </LotteryProvider>
   );
 }

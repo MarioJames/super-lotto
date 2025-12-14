@@ -1,0 +1,138 @@
+# Implementation Plan
+
+- [x] 1. Set up project dependencies and core types
+  - [x] 1.1 Install required dependencies (ai, papaparse, zod, vitest, fast-check)
+    - Add Vercel AI SDK, papaparse for CSV parsing, zod for validation
+    - Add vitest and fast-check for testing
+    - _Requirements: 2.1, 6.1_
+  - [x] 1.2 Create core TypeScript type definitions
+    - Define Participant, LotteryRound, Winner, LotteryState interfaces
+    - Define CardData, CardPayloadMap, and all card payload types
+    - Define CardAction union type
+    - _Requirements: 2.1, 3.2, 4.4_
+  - [ ]* 1.3 Write property test for LotteryState persistence round-trip
+    - **Property 1: Lottery State Persistence Round-Trip**
+    - **Validates: Requirements 2.4, 3.4, 4.4, 7.1, 7.2, 7.3, 7.4**
+
+- [x] 2. Implement storage and utility functions
+  - [x] 2.1 Create localStorage utility functions
+    - Implement saveLotteryState and loadLotteryState functions
+    - Handle localStorage unavailability gracefully
+    - _Requirements: 7.1, 7.2, 7.3, 7.4_
+  - [x] 2.2 Create CSV parsing utility
+    - Implement parseCSV function using papaparse
+    - Validate required columns (name) and generate IDs
+    - Return error for invalid CSV format
+    - _Requirements: 2.1, 2.5_
+  - [ ]* 2.3 Write property test for CSV parsing
+    - **Property 2: CSV Parsing Produces Valid Participants**
+    - **Validates: Requirements 2.1**
+  - [ ]* 2.4 Write property test for invalid CSV handling
+    - **Property 3: Invalid CSV Returns Error**
+    - **Validates: Requirements 2.5**
+  - [x] 2.5 Create lottery logic utilities
+    - Implement getEligibleParticipants function (exclude winners)
+    - Implement canExecuteRound function (sequential enforcement)
+    - Implement generateExportFilename function
+    - _Requirements: 4.3, 4.6, 5.3_
+  - [ ]* 2.6 Write property test for eligible participants
+    - **Property 5: Eligible Participants Excludes Winners**
+    - **Validates: Requirements 4.3**
+  - [ ]* 2.7 Write property test for sequential round enforcement
+    - **Property 6: Sequential Round Enforcement**
+    - **Validates: Requirements 4.6**
+  - [ ]* 2.8 Write property test for export filename format
+    - **Property 7: Export Filename Format**
+    - **Validates: Requirements 5.3**
+
+- [x] 3. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 4. Implement LotteryContext and state management
+  - [x] 4.1 Create LotteryContext provider
+    - Implement context with participants, rounds, winners state
+    - Implement setParticipants, addRound, addWinners methods
+    - Implement getEligibleParticipants, exportWinners methods
+    - Initialize state from localStorage on mount
+    - _Requirements: 2.4, 3.4, 4.3, 4.4, 7.4_
+  - [x] 4.2 Create LotteryRound validation utility
+    - Implement validateRound function
+    - Ensure positive roundNumber, non-empty prizeName, positive prizeQuantity
+    - _Requirements: 3.2_
+  - [ ]* 4.3 Write property test for lottery round structure validity
+    - **Property 4: Lottery Round Structure Validity**
+    - **Validates: Requirements 3.2**
+
+- [x] 5. Implement card rendering system
+  - [x] 5.1 Create CardRenderer component
+    - Implement switch-based rendering for all card types
+    - Handle CardAction callbacks
+    - _Requirements: 1.1, 3.5, 4.5_
+  - [x] 5.2 Create WelcomeCard component
+    - Display greeting message and action buttons
+    - Implement "How to Use" modal trigger
+    - _Requirements: 1.1, 1.2, 1.3_
+  - [x] 5.3 Create ParticipantCard component
+    - Display participant list with summary
+    - Implement confirm/cancel actions
+    - _Requirements: 2.3, 2.4_
+  - [x] 5.4 Create RoundConfigCard component
+    - Display round number, prize name, quantity
+    - Implement confirm/edit actions
+    - _Requirements: 3.3, 3.5_
+  - [x] 5.5 Create WinnerCard component
+    - Display winner list with round info
+    - Implement export button with correct filename
+    - _Requirements: 4.5, 5.1, 5.2, 5.3_
+  - [x] 5.6 Create ErrorCard component
+    - Display error message with optional retry button
+    - _Requirements: 2.5_
+  - [x] 5.7 Create mapToolResultToCard utility
+    - Map parseParticipants result to participant-list card
+    - Map configureRound result to round-config card
+    - Map executeLottery result to winner-result card
+    - _Requirements: 3.2, 4.4_
+
+- [x] 6. Implement chat interface components
+  - [x] 6.1 Create MessageList component
+    - Render messages with streaming support
+    - Integrate CardRenderer for tool invocation results
+    - _Requirements: 6.1, 6.2, 6.3_
+  - [x] 6.2 Create MessageInput component
+    - Text input with send button
+    - File upload support for CSV
+    - _Requirements: 2.1_
+  - [x] 6.3 Create ChatInterface component
+    - Combine MessageList and MessageInput
+    - Handle message sending and file uploads
+    - Display welcome card on first load
+    - _Requirements: 1.1, 6.1_
+
+- [x] 7. Implement API routes
+  - [x] 7.1 Create CSV upload API route (/api/upload-csv)
+    - Parse uploaded CSV file using papaparse
+    - Return parsed participants or error
+    - _Requirements: 2.1, 2.5_
+  - [x] 7.2 Create chat API route (/api/chat)
+    - Configure Vercel AI SDK with streaming
+    - Define AI tools (parseParticipants, configureRound, executeLottery)
+    - Include system prompt for lottery agent behavior
+    - Pass eligible participants and round info to LLM (no memory reliance)
+    - _Requirements: 2.2, 3.1, 4.1, 4.2, 6.1_
+  - [ ]* 7.3 Write property test for winner count matching prize quantity
+    - **Property 8: Winner Count Matches Prize Quantity**
+    - **Validates: Requirements 5.2**
+
+- [x] 8. Integrate main page
+  - [x] 8.1 Update main page with LotteryProvider and ChatInterface
+    - Wrap app with LotteryProvider
+    - Render ChatInterface as main content
+    - Apply Tailwind styling
+    - _Requirements: 1.1, 7.4_
+  - [x] 8.2 Create HowToUse modal component
+    - Display usage instructions
+    - Triggered from WelcomeCard
+    - _Requirements: 1.2_
+
+- [x] 9. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.

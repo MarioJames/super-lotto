@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "抽奖系统",
-  description: "多功能抽奖系统 - 支持多种抽奖模式",
+  title: "抽奖助手 - 智能抽奖系统",
+  description: "基于 AI 的智能抽奖系统，支持 CSV 导入、多轮次抽奖和结果导出",
 };
 
 export default function RootLayout({
@@ -25,17 +23,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 bg-slate-50 p-6">
-            {children}
-          </main>
-        </div>
-        <Toaster richColors position="top-right" />
+        {children}
       </body>
     </html>
   );
