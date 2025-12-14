@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { Participant } from '@/lib/types';
 import { CinematicStage, type CinematicPhase } from './CinematicStage';
+import { DoubleBall3DMachine } from './DoubleBall3DMachine';
 
 interface Props {
   participants: Participant[];
@@ -13,10 +14,12 @@ interface Props {
   isRunning: boolean;
 }
 
-const BALL_COLORS = ['#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C'] as const;
+const RED_BALL = '#ef4444';
+const BLUE_BALL = '#3b82f6';
 
 export function DoubleBallLottery({ participants, winnerCount, durationMs, onComplete, isRunning }: Props) {
-  const [balls, setBalls] = useState<{ id: number; name: string; color: string; revealed: boolean }[]>([]);
+  const actualWinnerCount = Math.min(winnerCount, participants.length, 49);
+  const [balls, setBalls] = useState<{ id: number; name: string; color: string; ballNo: number; revealed: boolean }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [currentWinners, setCurrentWinners] = useState<Participant[]>([]);
   const [phase, setPhase] = useState<CinematicPhase>('idle');
@@ -30,15 +33,32 @@ export function DoubleBallLottery({ participants, winnerCount, durationMs, onCom
     runIdRef.current += 1;
     const runId = runIdRef.current;
 
-    const shuffled = [...participants].sort(() => Math.random() - 0.5);
-    winnersRef.current = shuffled.slice(0, Math.min(winnerCount, participants.length));
+    const fisherYatesShuffle = <T,>(arr: T[]) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    };
 
-    const initialBalls = winnersRef.current.map((p, i) => ({
-      id: p.id,
-      name: p.name,
-      color: BALL_COLORS[i % BALL_COLORS.length],
-      revealed: false,
-    }));
+    const maxWinners = Math.min(winnerCount, participants.length, 49);
+    const shuffledParticipants = fisherYatesShuffle([...participants]);
+    winnersRef.current = shuffledParticipants.slice(0, maxWinners);
+
+    const ballPool = fisherYatesShuffle([
+      ...Array.from({ length: 33 }, (_, i) => ({ color: RED_BALL, ballNo: i + 1 })),
+      ...Array.from({ length: 16 }, (_, i) => ({ color: BLUE_BALL, ballNo: i + 1 })),
+    ]);
+
+    const initialBalls = winnersRef.current.map((p, i) => {
+      return {
+        id: p.id,
+        name: p.name,
+        color: ballPool[i].color,
+        ballNo: ballPool[i].ballNo,
+        revealed: false,
+      };
+    });
     setBalls(initialBalls);
     setCurrentIndex(-1);
     setCurrentWinners([]);
@@ -88,87 +108,20 @@ export function DoubleBallLottery({ participants, winnerCount, durationMs, onCom
         <div className="flex flex-col items-center justify-center py-4">
           <div className="mb-6 text-center">
             <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-wide">🎱 双色球抽奖 🎱</h2>
-            <p className="text-white/70 text-sm mt-1">共 {winnerCount} 个中奖名额</p>
+            <p className="text-white/70 text-sm mt-1">共 {actualWinnerCount} 个中奖名额</p>
           </div>
 
-          {/* 摇奖机（玻璃球舱 + 3D 质感） */}
-          <div className="relative" style={{ perspective: '1100px' }}>
-            <motion.div
-              className="relative rounded-full flex items-center justify-center"
-              style={{
-                width: 'min(56vw, 380px)',
-                height: 'min(56vw, 380px)',
-                transformStyle: 'preserve-3d',
-                rotateX: 14,
-                boxShadow:
-                  '0 50px 140px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.10) inset, 0 0 80px rgba(34,211,238,0.10)',
-                background: 'linear-gradient(180deg, rgba(30,41,59,0.9), rgba(2,6,23,0.92))',
-              }}
-            >
-              <div className="absolute inset-5 rounded-full overflow-hidden bg-black/20 ring-1 ring-white/10">
-                <div
-                  className="absolute inset-0 opacity-80"
-                  style={{
-                    backgroundImage:
-                      'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.25), transparent 55%), radial-gradient(circle at 70% 75%, rgba(34,211,238,0.18), transparent 60%)',
-                  }}
-                />
-                <AnimatePresence>
-                  {phase !== 'idle' && currentIndex < balls.length && (
-                    <motion.div
-                      className="absolute inset-0 flex items-center justify-center"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: [0, 1.25, 1], rotate: [0, 360, 900] }}
-                      transition={{ duration: 0.65 }}
-                    >
-                      {[...Array(10)].map((_, i) => (
-                        <motion.div
-                          key={i}
-                          className="absolute rounded-full"
-                          style={{
-                            width: 22 + (i % 3) * 5,
-                            height: 22 + (i % 3) * 5,
-                            backgroundColor: BALL_COLORS[i % BALL_COLORS.length],
-                            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
-                          }}
-                          animate={
-                            phase === 'drawing'
-                              ? {
-                                  x: Math.cos((i * Math.PI * 2) / 10) * 70,
-                                  y: Math.sin((i * Math.PI * 2) / 10) * 70,
-                                  rotate: 360,
-                                }
-                              : {
-                                  x: Math.cos((i * Math.PI * 2) / 10) * 52,
-                                  y: Math.sin((i * Math.PI * 2) / 10) * 52,
-                                  rotate: 180,
-                                }
-                          }
-                          transition={{ duration: 0.28, repeat: Infinity, ease: 'linear' }}
-                        />
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* 玻璃高光 */}
-              <div
-                className="absolute inset-0 rounded-full opacity-45 pointer-events-none"
-                style={{
-                  background:
-                    'radial-gradient(circle at 30% 25%, rgba(255,255,255,0.40), transparent 52%), radial-gradient(circle at 70% 70%, rgba(255,255,255,0.14), transparent 60%)',
-                  mixBlendMode: 'screen',
-                }}
-              />
-
-              <div className="absolute -bottom-4 h-10 w-24 rounded-b-2xl bg-white/8 ring-1 ring-white/10 backdrop-blur" />
-            </motion.div>
-          </div>
+          {/* 真实 3D 摇奖机（Three.js 程序建模） */}
+          <DoubleBall3DMachine
+            phase={phase}
+            balls={balls}
+            activeIndex={currentIndex}
+            className="w-full rounded-2xl overflow-hidden ring-1 ring-white/10 bg-black/20"
+          />
 
           {/* 开出的球 */}
           <div className="mt-8 flex flex-wrap justify-center gap-4 max-w-3xl">
-            {balls.map((ball, i) => (
+            {balls.map(ball => (
               <motion.div
                 key={ball.id}
                 initial={{ scale: 0, y: -50 }}
@@ -185,7 +138,7 @@ export function DoubleBallLottery({ participants, winnerCount, durationMs, onCom
                     boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
                   }}
                 >
-                  {i + 1}
+                  {ball.ballNo}
                 </div>
                 <p className="mt-2 font-medium text-sm text-white/90">{ball.name}</p>
               </motion.div>
