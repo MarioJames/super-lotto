@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,6 @@ import { LotteryMode, Participant } from '@/lib/types';
 import {
   generateMockParticipants,
   selectRandomMode,
-  selectRandomWinners,
 } from '@/lib/demo/mock-generator';
 import {
   WheelOfFortune,
@@ -47,6 +46,7 @@ interface DemoState {
   status: DemoStatus;
   participants: Participant[];
   selectedMode: LotteryMode;
+  winnerCount: number;
   winners: Participant[];
   previousModes: LotteryMode[];
 }
@@ -56,35 +56,45 @@ export function DemoLotteryModal({ isOpen, onClose }: DemoLotteryModalProps) {
     status: 'idle',
     participants: [],
     selectedMode: LotteryMode.WHEEL,
+    winnerCount: 1,
     winners: [],
     previousModes: [],
   });
-
-  // Initialize demo when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      initializeDemo();
-    }
-  }, [isOpen]);
+  const startTimerRef = useRef<number | null>(null);
 
   // Initialize demo with fresh data
   const initializeDemo = useCallback(() => {
     const participants = generateMockParticipants();
-    const selectedMode = selectRandomMode(state.previousModes);
+    const winnerCount = Math.floor(Math.random() * 3) + 1; // 1-3 winners
 
-    setState(prev => ({
-      ...prev,
-      status: 'idle',
-      participants,
-      selectedMode,
-      winners: [],
-    }));
+    setState(prev => {
+      const selectedMode = selectRandomMode(prev.previousModes);
+      return {
+        ...prev,
+        status: 'idle',
+        participants,
+        selectedMode,
+        winnerCount,
+        winners: [],
+      };
+    });
 
-    // Auto-start after a brief delay
-    setTimeout(() => {
+    if (startTimerRef.current != null) window.clearTimeout(startTimerRef.current);
+    startTimerRef.current = window.setTimeout(() => {
       setState(prev => ({ ...prev, status: 'running' }));
     }, 500);
-  }, [state.previousModes]);
+  }, []);
+
+  // Initialize demo when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    const raf = requestAnimationFrame(() => initializeDemo());
+    return () => {
+      cancelAnimationFrame(raf);
+      if (startTimerRef.current != null) window.clearTimeout(startTimerRef.current);
+      startTimerRef.current = null;
+    };
+  }, [isOpen, initializeDemo]);
 
   // Handle lottery completion
   const handleComplete = useCallback((winners: Participant[]) => {
@@ -98,29 +108,18 @@ export function DemoLotteryModal({ isOpen, onClose }: DemoLotteryModalProps) {
 
   // Try another mode
   const handleTryAnotherMode = useCallback(() => {
-    const participants = generateMockParticipants();
-    const selectedMode = selectRandomMode(state.previousModes);
-
-    setState(prev => ({
-      ...prev,
-      status: 'idle',
-      participants,
-      selectedMode,
-      winners: [],
-    }));
-
-    // Auto-start after a brief delay
-    setTimeout(() => {
-      setState(prev => ({ ...prev, status: 'running' }));
-    }, 500);
-  }, [state.previousModes]);
+    initializeDemo();
+  }, [initializeDemo]);
 
   // Handle modal close
   const handleClose = useCallback(() => {
+    if (startTimerRef.current != null) window.clearTimeout(startTimerRef.current);
+    startTimerRef.current = null;
     setState({
       status: 'idle',
       participants: [],
       selectedMode: LotteryMode.WHEEL,
+      winnerCount: 1,
       winners: [],
       previousModes: [],
     });
@@ -131,7 +130,7 @@ export function DemoLotteryModal({ isOpen, onClose }: DemoLotteryModalProps) {
   const renderLotteryMode = () => {
     const commonProps = {
       participants: state.participants,
-      winnerCount: Math.floor(Math.random() * 3) + 1, // 1-3 winners
+      winnerCount: state.winnerCount,
       durationMs: DEMO_ANIMATION_DURATION_MS,
       onComplete: handleComplete,
       isRunning: state.status === 'running',
